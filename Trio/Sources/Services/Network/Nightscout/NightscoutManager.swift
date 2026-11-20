@@ -515,6 +515,27 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
         }
     }
 
+    /// Custom (read-only reporting): re-sends the profile at most once a day, and after a failed attempt
+    /// retries at most once an hour. Stock Trio only uploads the profile at the moment a setting is saved,
+    /// so a failed upload leaves Nightscout holding stale settings indefinitely.
+    /// `uploadProfiles()` is a direct method, not one of the serialized `upload*()` pipeline entry points.
+    private func uploadProfilesIfStale() async {
+        let defaults = UserDefaults.standard
+        let lastSuccess = defaults.object(forKey: Self.lastProfileUploadKey) as? Date ?? .distantPast
+        let lastAttempt = defaults.object(forKey: Self.lastProfileUploadAttemptKey) as? Date ?? .distantPast
+        guard Date().timeIntervalSince(lastSuccess) > 24 * 60 * 60,
+              Date().timeIntervalSince(lastAttempt) > 60 * 60 else { return }
+        defaults.set(Date(), forKey: Self.lastProfileUploadAttemptKey)
+        do {
+            try await uploadProfiles()
+        } catch {
+            debug(.nightscout, "Daily profile re-upload failed: \(error)")
+        }
+    }
+
+    private static let lastProfileUploadKey = "customLastNightscoutProfileUpload"
+    private static let lastProfileUploadAttemptKey = "customLastNightscoutProfileUploadAttempt"
+
     /// Asynchronously uploads the current status to Nightscout, including OpenAPS status, pump status, and uploader details.
     ///
     /// This function gathers and processes various pieces of information such as the "enacted" and "suggested" determinations,
@@ -533,6 +554,9 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
     ///
     /// - Note: Ensure `nightscoutAPI` is initialized and `isUploadEnabled` is set to `true` before invoking this function.
     private func performUploadDeviceStatus() async throws {
+        // Detached so a slow profile POST can never hold up the device status upload.
+        Task(priority: .utility) { [weak self] in await self?.uploadProfilesIfStale() }
+
         guard let nightscout = nightscoutAPI, isUploadEnabled else {
             debug(.nightscout, "NS API not available or upload disabled. Aborting NS Status upload.")
             return
@@ -853,7 +877,14 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
                     isAPNSProduction: isAPNSProduction,
                     overridePresets: presetOverrides,
                     teamID: teamID,
-                    expirationDate: expireDate
+                    expirationDate: expireDate,
+                    trioSettings: NightscoutTrioSettingsSnapshot(
+                        preferences: settingsManager.preferences,
+                        pumpSettings: settingsManager.pumpSettings,
+                        appSettings: settingsManager.settings,
+                        appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+                        branchAndSha: BuildDetails.shared.branchAndSha
+                    )
                 )
 
                 guard let nightscout = nightscoutAPI, isNetworkReachable else {
@@ -865,6 +896,7 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
                 }
 
                 try await nightscout.uploadProfile(profileStore)
+                UserDefaults.standard.set(Date(), forKey: Self.lastProfileUploadKey)
 
                 BuildDetails.shared.recordUploadedExpireDate(expireDate: expireDate)
 
