@@ -353,6 +353,11 @@ extension Treatments {
                                     .padding(.vertical)
                             }.listRowBackground(Color.chart)
 
+                            // One-tap meal presets; follows the same setting as the "Presets +" toolbar button.
+                            if state.displayPresets {
+                                MealPresetQuickButtons(state: state)
+                            }
+
                             Section {
                                 carbsTextField()
                                     .id(FocusedField.carbs)
