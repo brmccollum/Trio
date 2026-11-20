@@ -105,6 +105,11 @@ extension Treatments {
         var dish: String = ""
         var selection: MealPresetStored?
         var summation: [String] = []
+        /// One entry per tap on a preset quick button since this screen opened. Display only (the "×2" badge and
+        /// the note tag); never used to compute carbs, fat or protein. Lives and dies with this model, like the fields.
+        var quickAddTaps: [MealPresetQuickAdd.Tap] = []
+        /// The last note text the quick buttons wrote, to tell it apart from a note the user typed or edited.
+        var quickAddNoteWritten: String?
         var maxCarbs: Decimal = 0
         var maxFat: Decimal = 0
         var maxProtein: Decimal = 0
@@ -786,6 +791,7 @@ extension Treatments {
                 carbs = 0
                 fat = 0
                 protein = 0
+                resetQuickAddTaps()
             }
             selection = nil
         }
