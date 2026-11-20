@@ -63,6 +63,18 @@ struct NightscoutProfileStore: JSON {
     let overridePresets: [NightscoutPresetOverride]?
     let teamID: String
     let expirationDate: Date?
+    /// Custom (read-only reporting): algorithm and pump limit settings, plus the build, for outside analysis.
+    /// Nightscout stores unknown profile fields untouched; nothing reads this back into Trio.
+    var trioSettings: NightscoutTrioSettingsSnapshot? = nil
+}
+
+struct NightscoutTrioSettingsSnapshot: JSON {
+    let preferences: Preferences
+    let pumpSettings: PumpSettings
+    /// App-level settings (fat/protein conversion, bolus calculator factors, dosing mode, display options).
+    let appSettings: TrioSettings
+    let appVersion: String
+    let branchAndSha: String
 }
 
 struct NightscoutPresetOverride: JSON {
