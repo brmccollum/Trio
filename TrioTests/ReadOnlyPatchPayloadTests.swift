@@ -359,4 +359,163 @@ import Testing
         )
         #expect(note == "Bolus calc: option none; recommended \(amount) U; requested \(amount) U")
     }
+
+    // MARK: - Change detection: fingerprint
+
+    private func snapshot(
+        preferences: Preferences? = nil,
+        pump: PumpSettings? = nil,
+        app: TrioSettings? = nil
+    ) -> NightscoutTrioSettingsSnapshot {
+        NightscoutTrioSettingsSnapshot(
+            preferences: preferences ?? knownPreferences(),
+            pumpSettings: pump ?? PumpSettings(insulinActionCurve: 7, maxBolus: 6, maxBasal: 3.5),
+            appSettings: app ?? knownAppSettings(),
+            appVersion: "1.0.2",
+            branchAndSha: "bryan/readonly-settings-snapshot abc1234"
+        )
+    }
+
+    @Test("Fingerprint is identical for equal settings and looks like SHA-256") func fingerprintStable() {
+        let first = snapshot().fingerprint
+        #expect(first == snapshot().fingerprint)
+        #expect(first == knownSnapshot().fingerprint)
+        #expect(first.count == 64)
+        let isHex = first.allSatisfy { $0.isHexDigit }
+        #expect(isHex)
+    }
+
+    @Test("Fingerprint changes when a preference changes") func fingerprintPreferenceChange() {
+        var preferences = knownPreferences()
+        preferences.threshold_setting = 73
+        #expect(snapshot(preferences: preferences).fingerprint != snapshot().fingerprint)
+    }
+
+    @Test("Fingerprint changes when an app setting changes") func fingerprintAppSettingChange() {
+        var fatProtein = knownAppSettings()
+        fatProtein.individualAdjustmentFactor = Decimal(string: "0.9")!
+        #expect(snapshot(app: fatProtein).fingerprint != snapshot().fingerprint)
+
+        var superBolus = knownAppSettings()
+        superBolus.sweetMealFactor = Decimal(string: "1.1")!
+        #expect(snapshot(app: superBolus).fingerprint != snapshot().fingerprint)
+        #expect(snapshot(app: superBolus).fingerprint != snapshot(app: fatProtein).fingerprint)
+
+        // A display-only setting counts too: anything in the snapshot triggers a re-send.
+        var display = knownAppSettings()
+        display.xGridLines.toggle()
+        #expect(snapshot(app: display).fingerprint != snapshot().fingerprint)
+    }
+
+    @Test("Fingerprint changes when a pump limit changes") func fingerprintPumpChange() {
+        let pump = PumpSettings(insulinActionCurve: 7, maxBolus: 6.5, maxBasal: 3.5)
+        #expect(snapshot(pump: pump).fingerprint != snapshot().fingerprint)
+    }
+
+    @Test("Fingerprint changes with the app version or build") func fingerprintBuildChange() {
+        let other = NightscoutTrioSettingsSnapshot(
+            preferences: knownPreferences(),
+            pumpSettings: PumpSettings(insulinActionCurve: 7, maxBolus: 6, maxBasal: 3.5),
+            appSettings: knownAppSettings(),
+            appVersion: "1.0.2",
+            branchAndSha: "bryan/readonly-settings-snapshot def5678"
+        )
+        #expect(other.fingerprint != snapshot().fingerprint)
+    }
+
+    @Test("Fingerprint ignores the preferences save timestamp") func fingerprintIgnoresTimestamp() {
+        var early = knownPreferences()
+        early.timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+        var late = knownPreferences()
+        late.timestamp = Date(timeIntervalSince1970: 1_800_086_400)
+        #expect(snapshot(preferences: early).fingerprint == snapshot(preferences: late).fingerprint)
+        #expect(snapshot(preferences: early).fingerprint == snapshot().fingerprint)
+    }
+
+    /// Also covers the app-restart case: settings written to JSON and read back give the same fingerprint.
+    @Test(
+        "Fingerprint does not depend on JSON key order and survives an encode/decode round trip"
+    ) func fingerprintIgnoresKeyOrder() throws {
+        let original = snapshot()
+        func text<T: Encodable>(_ value: T, sorted: Bool) throws -> String {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = sorted ? [.sortedKeys] : []
+            return try #require(String(data: try encoder.encode(value), encoding: .utf8))
+        }
+
+        // Keys sorted at every level.
+        let sorted = try text(original, sorted: true)
+        // Top-level blocks in reverse alphabetical order, nested keys in the encoder's own (unsorted) order.
+        let reversed = try "{"
+            + "\"pumpSettings\":" + text(original.pumpSettings, sorted: false) + ","
+            + "\"preferences\":" + text(original.preferences, sorted: false) + ","
+            + "\"branchAndSha\":" + text(original.branchAndSha, sorted: false) + ","
+            + "\"appVersion\":" + text(original.appVersion, sorted: false) + ","
+            + "\"appSettings\":" + text(original.appSettings, sorted: false)
+            + "}"
+        #expect(sorted != reversed)
+
+        let fromSorted = try JSONCoding.decoder.decode(
+            NightscoutTrioSettingsSnapshot.self,
+            from: try #require(sorted.data(using: .utf8))
+        )
+        let fromReversed = try JSONCoding.decoder.decode(
+            NightscoutTrioSettingsSnapshot.self,
+            from: try #require(reversed.data(using: .utf8))
+        )
+        #expect(fromSorted.fingerprint == original.fingerprint)
+        #expect(fromReversed.fingerprint == original.fingerprint)
+    }
+
+    // MARK: - Change detection: decision
+
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private func minutesAgo(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
+
+    private func shouldUpload(
+        successMinutesAgo: Double?,
+        attemptMinutesAgo: Double?,
+        current: String,
+        stored: String?
+    ) -> Bool {
+        NightscoutProfileReuploadPolicy.shouldUpload(
+            now: now,
+            lastSuccess: successMinutesAgo.map(minutesAgo),
+            lastAttempt: attemptMinutesAgo.map(minutesAgo),
+            currentFingerprint: current,
+            storedFingerprint: stored
+        )
+    }
+
+    @Test("Unchanged and recently uploaded: no upload") func decisionUnchangedRecent() {
+        #expect(!shouldUpload(successMinutesAgo: 60, attemptMinutesAgo: 60, current: "a", stored: "a"))
+        #expect(!shouldUpload(successMinutesAgo: 23 * 60, attemptMinutesAgo: 23 * 60, current: "a", stored: "a"))
+    }
+
+    @Test("Changed fingerprint: upload") func decisionChanged() {
+        #expect(shouldUpload(successMinutesAgo: 60, attemptMinutesAgo: 60, current: "b", stored: "a"))
+    }
+
+    @Test("Changed but attempted 5 minutes ago: wait") func decisionChangedRecentAttempt() {
+        #expect(!shouldUpload(successMinutesAgo: 60, attemptMinutesAgo: 5, current: "b", stored: "a"))
+    }
+
+    @Test("Changed and attempted 20 minutes ago: upload") func decisionChangedOlderAttempt() {
+        #expect(shouldUpload(successMinutesAgo: 60, attemptMinutesAgo: 20, current: "b", stored: "a"))
+    }
+
+    @Test("Unchanged but last success 25 hours ago: upload") func decisionDaily() {
+        #expect(shouldUpload(successMinutesAgo: 25 * 60, attemptMinutesAgo: 25 * 60, current: "a", stored: "a"))
+    }
+
+    @Test("Daily case keeps the hourly retry limit") func decisionDailyRetry() {
+        #expect(!shouldUpload(successMinutesAgo: 25 * 60, attemptMinutesAgo: 20, current: "a", stored: "a"))
+        #expect(shouldUpload(successMinutesAgo: 25 * 60, attemptMinutesAgo: 61, current: "a", stored: "a"))
+    }
+
+    @Test("Nothing stored yet (first run after install): upload") func decisionFirstRun() {
+        #expect(shouldUpload(successMinutesAgo: nil, attemptMinutesAgo: nil, current: "a", stored: nil))
+        // An earlier build recorded a success but no fingerprint: treated as changed, once.
+        #expect(shouldUpload(successMinutesAgo: 60, attemptMinutesAgo: 60, current: "a", stored: nil))
+    }
 }
