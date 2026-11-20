@@ -360,6 +360,8 @@ extension Stat.StateModel {
         case looping
         /// Meal-related statistics and correlations
         case meals
+        /// Read-only analysis reports fetched from a user-entered URL (display only)
+        case reports
 
         var id: String { rawValue }
 
@@ -373,6 +375,8 @@ extension Stat.StateModel {
                 return String(localized: "Looping", comment: "Title for looping and system statistics")
             case .meals:
                 return String(localized: "Meals", comment: "Title for meal-related statistics")
+            case .reports:
+                return String(localized: "Reports", comment: "Title for the read-only reports tab in statistics")
             }
         }
     }
