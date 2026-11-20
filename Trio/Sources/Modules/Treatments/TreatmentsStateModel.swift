@@ -644,7 +644,10 @@ extension Treatments {
                     await MainActor.run {
                         self.isAwaitingDeterminationResult = true
                     }
+                    // Capture the calculator choice before enacting; the screen state may reset meanwhile.
+                    let optionNote = bolusOptionNote(requested: Decimal(maxAmount))
                     await apsManager.enactBolus(amount: maxAmount, isSMB: false, callback: nil)
+                    uploadBolusOptionNote(optionNote)
                 }
             } catch {
                 debug(.bolusState, "Authentication error for pump bolus: \(error)")
@@ -654,6 +657,44 @@ extension Treatments {
                     self.showDeterminationFailureAlert = true
                     self.determinationFailureMessage = parseAuthenticationError(from: error)
                 }
+            }
+        }
+
+        /// Reporting only (read-only data patch): after a manual bolus has been handed to the pump,
+        /// upload one Nightscout note saying which bolus calculator option was ticked, what the
+        /// calculator recommended and what was requested. Runs as a separate low-priority task,
+        /// its result is ignored, and nothing in the dosing path waits on it or reads from it.
+        private func bolusOptionNote(requested: Decimal) -> String {
+            Self.bolusOptionNoteText(
+                useSuperBolus: useSuperBolus,
+                sweetMealFactor: sweetMealFactor,
+                useFattyMealCorrectionFactor: useFattyMealCorrectionFactor,
+                fattyMealFactor: fattyMealFactor,
+                recommended: insulinCalculated,
+                requested: requested
+            )
+        }
+
+        /// Pure text builder for the note above (no state, no I/O), separated so unit tests can call it.
+        static func bolusOptionNoteText(
+            useSuperBolus: Bool,
+            sweetMealFactor: Decimal,
+            useFattyMealCorrectionFactor: Bool,
+            fattyMealFactor: Decimal,
+            recommended: Decimal,
+            requested: Decimal
+        ) -> String {
+            var options: [String] = []
+            if useSuperBolus { options.append("Super Bolus \(100 * sweetMealFactor)%") }
+            if useFattyMealCorrectionFactor { options.append("Reduced Bolus \(100 * fattyMealFactor)%") }
+            let option = options.isEmpty ? "none" : options.joined(separator: " + ")
+            return "Bolus calc: option \(option); recommended \(recommended) U; requested \(requested) U"
+        }
+
+        private func uploadBolusOptionNote(_ note: String) {
+            let manager = nsManager
+            Task(priority: .utility) {
+                _ = await manager?.uploadNoteTreatment(note: note)
             }
         }
 
