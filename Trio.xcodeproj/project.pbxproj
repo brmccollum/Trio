@@ -987,6 +987,11 @@
 		FA6B58486AE2496F9F8589C6 /* QuickPickTreatmentsConfigProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEC5C2927FA4C5DA61A1A40 /* QuickPickTreatmentsConfigProvider.swift */; };
 		FB9012AE66284A92A6531037 /* NightscoutUploadSerializerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C39FF1EC12CF4B1EBB13BE26 /* NightscoutUploadSerializerTests.swift */; };
 		B0D1AB7E0000000000000002 /* ReadOnlyPatchPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E0000000000000001 /* ReadOnlyPatchPayloadTests.swift */; };
+		B0D1AB7E0000000000010011 /* AssistantReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E0000000000000011 /* AssistantReport.swift */; };
+		B0D1AB7E0000000000010012 /* AssistantReportsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E0000000000000012 /* AssistantReportsStore.swift */; };
+		B0D1AB7E0000000000010013 /* StatReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E0000000000000013 /* StatReportsView.swift */; };
+		B0D1AB7E0000000000010014 /* StatReportDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E0000000000000014 /* StatReportDetailView.swift */; };
+		B0D1AB7E0000000000000004 /* ReportsTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E0000000000000003 /* ReportsTabTests.swift */; };
 		782BE9AEFDD94938A6F3EFE9 /* NightscoutImportRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EFF860E684B4C9488D438DD /* NightscoutImportRoundTripTests.swift */; };
 		FE41E4D629463EE20047FD55 /* NightscoutPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE41E4D529463EE20047FD55 /* NightscoutPreferences.swift */; };
 		FE66D16B291F74F8005D6F77 /* Bundle+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE66D16A291F74F8005D6F77 /* Bundle+Extensions.swift */; };
@@ -1754,6 +1759,11 @@
 		C2BA6B982F758E7600348E6A /* NotificationIdentifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationIdentifiers.swift; sourceTree = "<group>"; };
 		C39FF1EC12CF4B1EBB13BE26 /* NightscoutUploadSerializerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutUploadSerializerTests.swift; sourceTree = "<group>"; };
 		B0D1AB7E0000000000000001 /* ReadOnlyPatchPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyPatchPayloadTests.swift; sourceTree = "<group>"; };
+		B0D1AB7E0000000000000011 /* AssistantReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantReport.swift; sourceTree = "<group>"; };
+		B0D1AB7E0000000000000012 /* AssistantReportsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantReportsStore.swift; sourceTree = "<group>"; };
+		B0D1AB7E0000000000000013 /* StatReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatReportsView.swift; sourceTree = "<group>"; };
+		B0D1AB7E0000000000000014 /* StatReportDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatReportDetailView.swift; sourceTree = "<group>"; };
+		B0D1AB7E0000000000000003 /* ReportsTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsTabTests.swift; sourceTree = "<group>"; };
 		6EFF860E684B4C9488D438DD /* NightscoutImportRoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutImportRoundTripTests.swift; sourceTree = "<group>"; };
 		C8D1A7CA8C10C4403D4BBFA7 /* TreatmentsDataFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TreatmentsDataFlow.swift; sourceTree = "<group>"; };
 		CA01000000000000000010C1 /* AlertCatalogVendor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertCatalogVendor.swift; sourceTree = "<group>"; };
@@ -2379,9 +2389,21 @@
 				19F95FF229F10FBC00314DDC /* StatDataFlow.swift */,
 				19F95FF429F10FCF00314DDC /* StatProvider.swift */,
 				19F95FF629F10FEE00314DDC /* StatStateModel.swift */,
+				B0D1AB7E0000000000000010 /* Reports */,
 				19F95FF829F10FF600314DDC /* View */,
 			);
 			path = Stat;
+			sourceTree = "<group>";
+		};
+		B0D1AB7E0000000000000010 /* Reports */ = {
+			isa = PBXGroup;
+			children = (
+				B0D1AB7E0000000000000011 /* AssistantReport.swift */,
+				B0D1AB7E0000000000000012 /* AssistantReportsStore.swift */,
+				B0D1AB7E0000000000000013 /* StatReportsView.swift */,
+				B0D1AB7E0000000000000014 /* StatReportDetailView.swift */,
+			);
+			path = Reports;
 			sourceTree = "<group>";
 		};
 		19F95FF829F10FF600314DDC /* View */ = {
@@ -3245,6 +3267,7 @@
 				BD8FC0532D66186000B95AED /* TestError.swift */,
 				C39FF1EC12CF4B1EBB13BE26 /* NightscoutUploadSerializerTests.swift */,
 				B0D1AB7E0000000000000001 /* ReadOnlyPatchPayloadTests.swift */,
+				B0D1AB7E0000000000000003 /* ReportsTabTests.swift */,
 				6EFF860E684B4C9488D438DD /* NightscoutImportRoundTripTests.swift */,
 				BD8FC0702D661B0000B95AED /* TidepoolTherapySettingsTests.swift */,
 				CA03000000000000000010C1 /* AlertCatalogRegistryOmniFaultTests.swift */,
@@ -5361,6 +5384,10 @@
 				DD9ECB702CA9A0BA00AA7C45 /* RemoteControlConfigStateModel.swift in Sources */,
 				BD249D942D42FC5E00412DEB /* TotalDailyDoseChart.swift in Sources */,
 				BD249D902D42FC4500412DEB /* MealStatsView.swift in Sources */,
+				B0D1AB7E0000000000010011 /* AssistantReport.swift in Sources */,
+				B0D1AB7E0000000000010012 /* AssistantReportsStore.swift in Sources */,
+				B0D1AB7E0000000000010013 /* StatReportsView.swift in Sources */,
+				B0D1AB7E0000000000010014 /* StatReportDetailView.swift in Sources */,
 				DD32CF9A2CC8247B003686D6 /* TrioRemoteControl+Meal.swift in Sources */,
 				BDF34F832C10C5B600D51995 /* DataManager.swift in Sources */,
 				38B4F3C625E5017E00E76A18 /* NotificationCenter.swift in Sources */,
@@ -5987,6 +6014,7 @@
 				BD8FC0542D66186000B95AED /* TestError.swift in Sources */,
 				FB9012AE66284A92A6531037 /* NightscoutUploadSerializerTests.swift in Sources */,
 				B0D1AB7E0000000000000002 /* ReadOnlyPatchPayloadTests.swift in Sources */,
+				B0D1AB7E0000000000000004 /* ReportsTabTests.swift in Sources */,
 				782BE9AEFDD94938A6F3EFE9 /* NightscoutImportRoundTripTests.swift in Sources */,
 				DDDD0FFB2F4E22C000F9C645 /* GlucoseSmoothingTests.swift in Sources */,
 				DDDD0FFD2F4E22C000F9C645 /* GlucoseNativeConversionTests.swift in Sources */,
