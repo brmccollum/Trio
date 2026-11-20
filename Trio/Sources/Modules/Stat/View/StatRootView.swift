@@ -34,20 +34,27 @@ extension Stat {
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
 
-                ScrollView {
-                    VStack(spacing: Constants.spacing) {
-                        switch selectedView {
-                        case .glucose:
-                            glucoseView
-                        case .insulin:
-                            insulinView
-                        case .looping:
-                            loopingView
-                        case .meals:
-                            mealsView
+                if selectedView == .reports {
+                    // Display-only tab with its own scroll view, so pull-to-refresh applies only here.
+                    StatReportsView()
+                } else {
+                    ScrollView {
+                        VStack(spacing: Constants.spacing) {
+                            switch selectedView {
+                            case .glucose:
+                                glucoseView
+                            case .insulin:
+                                insulinView
+                            case .looping:
+                                loopingView
+                            case .meals:
+                                mealsView
+                            case .reports:
+                                EmptyView()
+                            }
                         }
+                        .padding()
                     }
-                    .padding()
                 }
             }
             .background(appState.trioBackgroundColor(for: colorScheme))
