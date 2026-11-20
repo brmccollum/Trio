@@ -1,5 +1,6 @@
 import Combine
 import CoreData
+import CryptoKit
 import Foundation
 import LoopKit
 import LoopKitUI
@@ -515,26 +516,46 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
         }
     }
 
-    /// Custom (read-only reporting): re-sends the profile at most once a day, and after a failed attempt
-    /// retries at most once an hour. Stock Trio only uploads the profile at the moment a setting is saved,
-    /// so a failed upload leaves Nightscout holding stale settings indefinitely.
+    /// Custom (read-only reporting): re-sends the profile (with its `trioSettings` snapshot) when any setting
+    /// in the snapshot has changed since the last successful upload, or when a day has passed. A failed or
+    /// skipped attempt is retried at most every 15 minutes for a change, and at most hourly for the daily case.
+    /// Stock Trio only uploads the profile at the moment a therapy setting is saved, so other settings changes
+    /// never reach Nightscout and a failed upload leaves it holding stale settings indefinitely.
     /// `uploadProfiles()` is a direct method, not one of the serialized `upload*()` pipeline entry points.
     private func uploadProfilesIfStale() async {
+        guard isUploadEnabled, nightscoutAPI != nil else { return }
         let defaults = UserDefaults.standard
-        let lastSuccess = defaults.object(forKey: Self.lastProfileUploadKey) as? Date ?? .distantPast
-        let lastAttempt = defaults.object(forKey: Self.lastProfileUploadAttemptKey) as? Date ?? .distantPast
-        guard Date().timeIntervalSince(lastSuccess) > 24 * 60 * 60,
-              Date().timeIntervalSince(lastAttempt) > 60 * 60 else { return }
-        defaults.set(Date(), forKey: Self.lastProfileUploadAttemptKey)
+        let now = Date()
+        let fingerprint = currentSettingsSnapshot().fingerprint
+        guard NightscoutProfileReuploadPolicy.shouldUpload(
+            now: now,
+            lastSuccess: defaults.object(forKey: Self.lastProfileUploadKey) as? Date,
+            lastAttempt: defaults.object(forKey: Self.lastProfileUploadAttemptKey) as? Date,
+            currentFingerprint: fingerprint,
+            storedFingerprint: defaults.string(forKey: Self.lastProfileUploadFingerprintKey)
+        ) else { return }
+        defaults.set(now, forKey: Self.lastProfileUploadAttemptKey)
         do {
             try await uploadProfiles()
         } catch {
-            debug(.nightscout, "Daily profile re-upload failed: \(error)")
+            debug(.nightscout, "Profile re-upload failed: \(error)")
         }
+    }
+
+    /// Custom (read-only reporting): the settings snapshot attached to the profile upload.
+    private func currentSettingsSnapshot() -> NightscoutTrioSettingsSnapshot {
+        NightscoutTrioSettingsSnapshot(
+            preferences: settingsManager.preferences,
+            pumpSettings: settingsManager.pumpSettings,
+            appSettings: settingsManager.settings,
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            branchAndSha: BuildDetails.shared.branchAndSha
+        )
     }
 
     private static let lastProfileUploadKey = "customLastNightscoutProfileUpload"
     private static let lastProfileUploadAttemptKey = "customLastNightscoutProfileUploadAttempt"
+    private static let lastProfileUploadFingerprintKey = "customLastNightscoutProfileUploadFingerprint"
 
     /// Asynchronously uploads the current status to Nightscout, including OpenAPS status, pump status, and uploader details.
     ///
@@ -878,13 +899,7 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
                     overridePresets: presetOverrides,
                     teamID: teamID,
                     expirationDate: expireDate,
-                    trioSettings: NightscoutTrioSettingsSnapshot(
-                        preferences: settingsManager.preferences,
-                        pumpSettings: settingsManager.pumpSettings,
-                        appSettings: settingsManager.settings,
-                        appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
-                        branchAndSha: BuildDetails.shared.branchAndSha
-                    )
+                    trioSettings: currentSettingsSnapshot()
                 )
 
                 guard let nightscout = nightscoutAPI, isNetworkReachable else {
@@ -897,6 +912,8 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
 
                 try await nightscout.uploadProfile(profileStore)
                 UserDefaults.standard.set(Date(), forKey: Self.lastProfileUploadKey)
+                // Fingerprint of exactly what was sent, so a change made during the upload is still seen next cycle.
+                UserDefaults.standard.set(profileStore.trioSettings?.fingerprint, forKey: Self.lastProfileUploadFingerprintKey)
 
                 BuildDetails.shared.recordUploadedExpireDate(expireDate: expireDate)
 
@@ -1581,5 +1598,51 @@ extension BaseNightscoutManager {
 
         // If no match is found, append TDD at the end of the original reason string.
         return reason + tddString
+    }
+}
+
+// MARK: - Custom (read-only reporting): settings snapshot change detection
+
+extension NightscoutTrioSettingsSnapshot {
+    /// Stable SHA-256 fingerprint of the snapshot content. Pure: no I/O, no clock.
+    /// Keys are sorted so the result does not depend on encoder key order. `preferences.timestamp` is
+    /// left out because it records when preferences were saved, not what they are.
+    var fingerprint: String {
+        var stablePreferences = preferences
+        stablePreferences.timestamp = nil
+        let stable = NightscoutTrioSettingsSnapshot(
+            preferences: stablePreferences,
+            pumpSettings: pumpSettings,
+            appSettings: appSettings,
+            appVersion: appVersion,
+            branchAndSha: branchAndSha
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(stable) else { return "" }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+enum NightscoutProfileReuploadPolicy {
+    static let dailyInterval: TimeInterval = 24 * 60 * 60
+    static let changedRetryInterval: TimeInterval = 15 * 60
+    static let dailyRetryInterval: TimeInterval = 60 * 60
+
+    /// Pure decision: should the profile be re-sent now?
+    /// Yes when the settings fingerprint differs from the one stored at the last successful upload (retry
+    /// at most every 15 minutes), or when the last success is more than a day old (retry at most hourly).
+    static func shouldUpload(
+        now: Date,
+        lastSuccess: Date?,
+        lastAttempt: Date?,
+        currentFingerprint: String,
+        storedFingerprint: String?
+    ) -> Bool {
+        let changed = currentFingerprint != storedFingerprint
+        let stale = now.timeIntervalSince(lastSuccess ?? .distantPast) > dailyInterval
+        guard changed || stale else { return false }
+        let retryInterval = changed ? changedRetryInterval : dailyRetryInterval
+        return now.timeIntervalSince(lastAttempt ?? .distantPast) > retryInterval
     }
 }
