@@ -79,6 +79,7 @@ extension History {
                             case .adjustments: adjustmentsList
                             }
                         }.scrollContentBackground(.hidden)
+                            .background(OffworldHaze())
                             .background(appState.trioBackgroundColor(for: colorScheme))
                     }.blur(radius: state.waitForSuggestion ? 8 : 0)
 

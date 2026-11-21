@@ -19,7 +19,7 @@ struct AlgorithmSettings: BaseView {
     var body: some View {
         Form {
             Section(
-                header: Text("Oref Algorithm"),
+                header: Text("Oref Algorithm").offworldSectionHeader(),
                 content: {
                     Text("Autosens").navigationLink(to: .autosensSettings, from: self)
                     Text("Super Micro Bolus (SMB)").navigationLink(to: .smbSettings, from: self)
@@ -27,7 +27,7 @@ struct AlgorithmSettings: BaseView {
                     Text("Target Behavior").navigationLink(to: .targetBehavior, from: self)
                     Text("Additionals").navigationLink(to: .algorithmAdvancedSettings, from: self)
                 }
-            ).listRowBackground(Color.chart)
+            ).listRowBackground(OffworldRowFill())
         }
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))

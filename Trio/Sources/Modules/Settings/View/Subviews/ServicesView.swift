@@ -20,7 +20,7 @@ struct ServicesView: BaseView {
     var body: some View {
         Form {
             Section(
-                header: Text("Connected Services"),
+                header: Text("Connected Services").offworldSectionHeader(),
                 content: {
                     Text("Nightscout").navigationLink(to: .nighscoutConfig, from: self)
                     Text("Tidepool").navigationLink(to: .tidepoolConfig, from: self)
@@ -29,7 +29,7 @@ struct ServicesView: BaseView {
                     }
                 }
             )
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
         }
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))

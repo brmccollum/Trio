@@ -73,6 +73,11 @@ extension Home {
             }
         }
 
+        /// Inputs for the Off-world decoration: nothing moves behind a sheet or on another tab.
+        private var offworldMotion: OffworldMotionInputs {
+            OffworldMotionInputs(modalPresented: appState.modalPresented, homeVisible: selectedTab == 0)
+        }
+
         @ViewBuilder func mainChart(geo: GeometryProxy) -> some View {
             // the chart is the only flexible zone: it takes what the fixed slots leave over
             let chartHeight = max(
@@ -97,6 +102,10 @@ extension Home {
             }
             // enforce the zone budget; panes flex within it
             .frame(height: chartHeight)
+            .background(
+                OffworldHomePanel(tint: .panel, scan: true, fillOpacity: 0.74, motion: offworldMotion)
+                    .padding(.horizontal, 2)
+            )
             .overlay(alignment: .bottomTrailing) {
                 chartInfoButton
                     .offset(x: 0, y: -18)
@@ -173,7 +182,7 @@ extension Home {
                     .frame(width: 32, height: 32)
                     .overlay(
                         Circle()
-                            .stroke(Color.primary.opacity(0.4), lineWidth: 2)
+                            .stroke(OffworldTheme.roundButtonRim, lineWidth: OffworldTheme.isEnabled ? 1.5 : 2)
                     )
                     .accessibilityLabel(Text("Chart legend"))
             }
@@ -208,6 +217,8 @@ extension Home {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 bottomControls()
             }
+            .background(OffworldRain(motion: offworldMotion))
+            .background(OffworldHaze())
             .background(appState.trioBackgroundColor(for: colorScheme))
             .onReceive(
                 resolver.resolve(AlertPermissionsChecker.self)!.$notificationsDisabled,
@@ -245,9 +256,11 @@ extension Home {
                 }
                 // fixed slot: header state changes never reflow the zones below
                 .frame(height: HomeLayout.headerHeight)
+                .background(OffworldHomePanel(motion: offworldMotion).padding(.horizontal, 8).padding(.vertical, 4))
 
                 mealPanel()
                     .frame(height: HomeLayout.mealSlotHeight)
+                    .background(OffworldHomePanel(motion: offworldMotion).padding(.horizontal, 8).padding(.vertical, 2))
                     // Fades the readout in and out. Keyed on visibility, not on the date: a
                     // scrub step leaves the flag alone, so only the swap animates and the
                     // values inside keep updating unanimated.
@@ -257,6 +270,7 @@ extension Home {
                 mainChart(geo: geo)
             }
             .frame(maxWidth: .infinity)
+            .environment(\.offworldMotion, offworldMotion)
         }
 
         @ViewBuilder func mainView() -> some View {
@@ -416,7 +430,7 @@ extension Home {
                             systemImage: "gear"
                         ).accessibilityLabel(Text("Settings")) }.tag(3)
                 }
-                .tint(Color.tabBar)
+                .tint(OffworldTheme.resolve(Color.tabBar, themed: .carbGold, enabled: appState.offworldEnabled))
 
                 // fixed distance from the physical screen bottom; immune to
                 // safe-area changes (keyboard, accessories)
@@ -453,10 +467,19 @@ extension Home {
             )
         }
 
+        /// Stock symbol, or the gold disc while the Off-world theme is on.
+        @ViewBuilder private var treatmentButtonGlyph: some View {
+            if appState.offworldEnabled {
+                OffworldPlusDisc()
+            } else {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 40))
+                    .foregroundStyle(Color.tabBar)
+            }
+        }
+
         private var treatmentButton: some View {
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(Color.tabBar)
+            treatmentButtonGlyph
                 .padding(.vertical, 2)
                 .padding(.horizontal, 24)
                 .contentShape(Rectangle())
@@ -550,7 +573,7 @@ extension Home {
                             systemImage: "gear"
                         ) }.tag(3)
                 }
-                .tint(Color.tabBar)
+                .tint(OffworldTheme.resolve(Color.tabBar, themed: .carbGold, enabled: appState.offworldEnabled))
 
                 treatmentButton
             }.ignoresSafeArea(.keyboard, edges: .bottom).blur(radius: state.waitForSuggestion ? 8 : 0)

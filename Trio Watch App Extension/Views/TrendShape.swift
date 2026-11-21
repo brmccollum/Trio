@@ -158,13 +158,18 @@ struct TrendShape: View {
         ZStack {
             // Outer circle with gradient
             Circle()
-                .stroke(isWatchStateDated ? staleWatchStateGradient : angularGradient, lineWidth: strokeWidth)
+                .stroke(
+                    isWatchStateDated
+                        ? staleWatchStateGradient
+                        : (WatchOffworldTheme.isEnabled ? WatchOffworldTheme.bezelGradient : angularGradient),
+                    lineWidth: strokeWidth
+                )
                 .frame(width: circleSize, height: circleSize)
                 .background(Circle().fill(Color.black))
 
             // Triangle with the color of the last gradient color
             Triangle(deviceType: deviceType)
-                .fill(triangleColor)
+                .fill(WatchOffworldTheme.isEnabled ? WatchOffworldTheme.cyan : triangleColor)
                 .frame(width: triangleSize, height: triangleSize)
                 .offset(x: triangleOffset)
                 .opacity(isWatchStateDated ? 0 : 1)

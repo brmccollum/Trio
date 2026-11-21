@@ -42,7 +42,7 @@ extension UserInterfaceSettings {
         var body: some View {
             List {
                 Section(
-                    header: Text("General Appearance"),
+                    header: Text("General Appearance").offworldSectionHeader(),
                     content: {
                         VStack {
                             Picker(
@@ -99,6 +99,25 @@ extension UserInterfaceSettings {
                         }.padding(.bottom)
                     }
                 ).settingsSearchTarget(label: String(localized: "Appearance"))
+
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { appState.offworldEnabled },
+                        set: { appState.offworldEnabled = $0 }
+                    )) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(verbatim: "Off-world Theme")
+                            Text(
+                                verbatim: "Dark brass-and-neon look. Appearance only; overrides the choice above while on. Restart Trio after switching to apply it everywhere."
+                            )
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowBackground(OffworldRowFill())
 
                 Section {
                     VStack {
@@ -168,7 +187,7 @@ extension UserInterfaceSettings {
                 }.settingsSearchTarget(label: String(localized: "Glucose Color Scheme"))
 
                 Section(
-                    header: Text("Home View Settings"),
+                    header: Text("Home View Settings").offworldSectionHeader(),
                     content: {
                         VStack {
                             Toggle("Show X-Axis Grid Lines", isOn: $state.xGridLines)
@@ -475,7 +494,7 @@ extension UserInterfaceSettings {
                 }.settingsSearchTarget(label: String(localized: "Bolus Display Threshold"))
 
                 Section(
-                    header: Text("Trio Statistics"),
+                    header: Text("Trio Statistics").offworldSectionHeader(),
                     content: {
                         VStack {
                             Picker(

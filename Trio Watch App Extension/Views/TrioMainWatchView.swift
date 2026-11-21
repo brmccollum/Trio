@@ -53,11 +53,15 @@ struct TrioMainWatchView: View {
         isAdjustmentActive(for: state.overridePresets) { $0.isEnabled }
     }
 
-    private var trioBackgroundColor = LinearGradient(
-        gradient: Gradient(colors: [Color.bgDarkBlue, Color.bgDarkerDarkBlue]),
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    // Computed so the main page follows the Off-world flag as soon as the phone sends it.
+    private var trioBackgroundColor: LinearGradient {
+        _ = state.offworldTheme
+        return LinearGradient(
+            gradient: Gradient(colors: [Color.bgDarkBlue, Color.bgDarkerDarkBlue]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -73,7 +77,11 @@ struct TrioMainWatchView: View {
                     if state.showSyncingAnimation {
                         Image(systemName: "iphone.radiowaves.left.and.right")
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(Color.primary, Color.tabBar, Color.clear)
+                            .foregroundStyle(
+                                Color.primary,
+                                state.offworldTheme ? WatchOffworldTheme.cyan : Color.tabBar,
+                                Color.clear
+                            )
                             .symbolEffect(
                                 .variableColor.iterative,
                                 options: .repeating,
@@ -116,6 +124,7 @@ struct TrioMainWatchView: View {
 
                         Text(isWatchStateDated || isSessionUnreachable ? "--" : state.iob ?? "--")
                             .foregroundStyle(isWatchStateDated ? Color.secondary : Color.white)
+                            .watchOffworldDigits(active: state.offworldTheme)
                             .frame(alignment: .leading)
                             .minimumScaleFactor(0.5)
                     }.font(.caption2)
@@ -128,6 +137,7 @@ struct TrioMainWatchView: View {
 
                         Text(isWatchStateDated || isSessionUnreachable ? "--" : state.cob ?? "--")
                             .foregroundStyle(isWatchStateDated || isSessionUnreachable ? Color.secondary : Color.white)
+                            .watchOffworldDigits(active: state.offworldTheme)
                             .frame(alignment: .trailing)
                             .minimumScaleFactor(0.5)
                     }.font(.caption2)

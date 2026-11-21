@@ -61,30 +61,93 @@ extension MainChartCanvas {
         // only bars overlapping the render window; the rest clip invisibly but still cost layout
         let visible = preparedTempBasals.filter { $0.end >= windowStart && $0.start <= windowEnd }
         return ForEach(visible, id: \.start) { basal in
-            RectangleMark(
-                xStart: .value("start", basal.start),
-                xEnd: .value("end", basal.end),
-                yStart: .value("rate-start", basalDomainMax),
-                yEnd: .value("rate-end", invertedY(basal.rate))
-            ).foregroundStyle(
-                .linearGradient(
-                    colors: [
-                        Color.insulin.opacity(0.6),
-                        Color.insulin.opacity(0.1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+            if OffworldTheme.isEnabled {
+                // Off-world. Bars hang from the top of the strip, so the rate edge is the lower one:
+                // a thin steel edge with a faint steel fill fading away from it.
+                let cyan = OffworldTheme.Swatch.steel.color // basal is steel, not the glucose cyan
+                RectangleMark(
+                    xStart: .value("start", basal.start),
+                    xEnd: .value("end", basal.end),
+                    yStart: .value("rate-start", basalDomainMax),
+                    yEnd: .value("rate-end", invertedY(basal.rate))
+                ).foregroundStyle(
+                    .linearGradient(
+                        colors: [cyan.opacity(0.03), cyan.opacity(0.26)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-            ).alignsMarkStylesWithPlotArea()
-                .opacity(basal.isScheduled ? 0.5 : 1)
+                .opacity(basal.isScheduled ? 0.45 : 1)
 
-            LineMark(x: .value("Start Date", basal.start), y: .value("Amount", invertedY(basal.rate)))
-                .lineStyle(.init(lineWidth: 1)).foregroundStyle(Color.insulin)
-                .opacity(basal.isScheduled ? 0.5 : 1)
+                LineMark(
+                    x: .value("Start Date", basal.start),
+                    y: .value("Amount", invertedY(basal.rate)),
+                    series: .value("edge", "glow")
+                )
+                .lineStyle(.init(lineWidth: 4)).foregroundStyle(cyan.opacity(0.16))
+                LineMark(
+                    x: .value("End Date", basal.end),
+                    y: .value("Amount", invertedY(basal.rate)),
+                    series: .value("edge", "glow")
+                )
+                .lineStyle(.init(lineWidth: 4)).foregroundStyle(cyan.opacity(0.16))
 
-            LineMark(x: .value("End Date", basal.end), y: .value("Amount", invertedY(basal.rate)))
-                .lineStyle(.init(lineWidth: 1)).foregroundStyle(Color.insulin)
-                .opacity(basal.isScheduled ? 0.5 : 1)
+                LineMark(
+                    x: .value("Start Date", basal.start),
+                    y: .value("Amount", invertedY(basal.rate)),
+                    series: .value("edge", "line")
+                )
+                .lineStyle(.init(lineWidth: 1)).foregroundStyle(cyan.opacity(0.9))
+                LineMark(
+                    x: .value("End Date", basal.end),
+                    y: .value("Amount", invertedY(basal.rate)),
+                    series: .value("edge", "line")
+                )
+                .lineStyle(.init(lineWidth: 1)).foregroundStyle(cyan.opacity(0.9))
+
+                if basal.rate == 0, !basal.isScheduled {
+                    // zero temp: nothing is delivered, so there is no bar; mark the stretch with a pink glow bar
+                    RuleMark(
+                        xStart: .value("start", basal.start),
+                        xEnd: .value("end", basal.end),
+                        y: .value("zero", basalDomainMax * 0.94)
+                    )
+                    .lineStyle(.init(lineWidth: 7, lineCap: .round))
+                    .foregroundStyle(OffworldTheme.Swatch.pink.color.opacity(0.22))
+                    RuleMark(
+                        xStart: .value("start", basal.start),
+                        xEnd: .value("end", basal.end),
+                        y: .value("zero", basalDomainMax * 0.94)
+                    )
+                    .lineStyle(.init(lineWidth: 2))
+                    .foregroundStyle(OffworldTheme.Swatch.pink.color)
+                }
+            } else {
+                RectangleMark(
+                    xStart: .value("start", basal.start),
+                    xEnd: .value("end", basal.end),
+                    yStart: .value("rate-start", basalDomainMax),
+                    yEnd: .value("rate-end", invertedY(basal.rate))
+                ).foregroundStyle(
+                    .linearGradient(
+                        colors: [
+                            Color.insulin.opacity(0.6),
+                            Color.insulin.opacity(0.1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                ).alignsMarkStylesWithPlotArea()
+                    .opacity(basal.isScheduled ? 0.5 : 1)
+
+                LineMark(x: .value("Start Date", basal.start), y: .value("Amount", invertedY(basal.rate)))
+                    .lineStyle(.init(lineWidth: 1)).foregroundStyle(Color.insulin)
+                    .opacity(basal.isScheduled ? 0.5 : 1)
+
+                LineMark(x: .value("End Date", basal.end), y: .value("Amount", invertedY(basal.rate)))
+                    .lineStyle(.init(lineWidth: 1)).foregroundStyle(Color.insulin)
+                    .opacity(basal.isScheduled ? 0.5 : 1)
+            }
         }
     }
 
@@ -96,12 +159,14 @@ extension MainChartCanvas {
                 x: .value("Start Date", profile.startDate),
                 y: .value("Amount", invertedY(profile.amount)),
                 series: .value("profile", "profile")
-            ).lineStyle(.init(lineWidth: 2, dash: [2, 4])).foregroundStyle(Color.insulin)
+            ).lineStyle(OffworldTheme.isEnabled ? .init(lineWidth: 0.75) : .init(lineWidth: 2, dash: [2, 4]))
+                .foregroundStyle(OffworldTheme.isEnabled ? OffworldTheme.Swatch.chrome.color.opacity(0.45) : Color.insulin)
             LineMark(
                 x: .value("End Date", profile.endDate ?? state.endMarker),
                 y: .value("Amount", invertedY(profile.amount)),
                 series: .value("profile", "profile")
-            ).lineStyle(.init(lineWidth: 2.5, dash: [2, 4])).foregroundStyle(Color.insulin)
+            ).lineStyle(OffworldTheme.isEnabled ? .init(lineWidth: 0.75) : .init(lineWidth: 2.5, dash: [2, 4]))
+                .foregroundStyle(OffworldTheme.isEnabled ? OffworldTheme.Swatch.chrome.color.opacity(0.45) : Color.insulin)
         }
     }
 

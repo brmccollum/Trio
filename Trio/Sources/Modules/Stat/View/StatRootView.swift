@@ -57,6 +57,7 @@ extension Stat {
                     }
                 }
             }
+            .background(OffworldHaze())
             .background(appState.trioBackgroundColor(for: colorScheme))
             // Dense charts and stat grids shatter at accessibility sizes; cap tighter than the global bound.
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
@@ -67,7 +68,7 @@ extension Stat {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: state.hideModal) {
                         Text("Close")
-                            .foregroundColor(.tabBar)
+                            .foregroundColor(OffworldTheme.resolve(.tabBar, themed: .cyan))
                     }
                 }
             }
@@ -447,5 +448,6 @@ struct StatCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: Stat.RootView.Constants.cornerRadius)
                     .fill(Color.secondary.opacity(Stat.RootView.Constants.backgroundOpacity))
             )
+            .offworldHairline(RoundedRectangle(cornerRadius: Stat.RootView.Constants.cornerRadius))
     }
 }

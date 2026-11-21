@@ -18,11 +18,16 @@ extension Main {
                 .sheet(item: $state.modal) { modal in
                     NavigationView { modal.view }
                         .navigationViewStyle(StackNavigationViewStyle())
+                        // Off-world accent on sheets; the Treatments (carb/bolus) sheet stays stock.
+                        .offworldTint(active: modal.screen != .treatmentView)
                 }
                 .sheet(item: $state.secondaryModal) { wrapper in
                     wrapper.view
                 }
                 .trioAlerts(modalScheduler)
+                .onChange(of: state.modal != nil || state.secondaryModal != nil) { _, isPresented in
+                    appState.modalPresented = isPresented
+                }
                 .onAppear(perform: configureView)
                 .scrollContentBackground(.hidden).background(appState.trioBackgroundColor(for: colorScheme))
         }

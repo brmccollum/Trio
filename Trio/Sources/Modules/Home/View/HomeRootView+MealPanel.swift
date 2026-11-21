@@ -102,13 +102,15 @@ extension Home.RootView {
                     String(localized: " g", comment: "gram of carbs")
             )
             .font(.callout).fontWeight(.bold).fontDesign(.rounded)
+            .offworldMonoDigits(.carbGold)
             .overlay(alignment: .leading) {
                 Image(systemName: "fork.knife")
                     .font(.callout)
-                    .foregroundColor(.loopYellow)
+                    .foregroundColor(OffworldTheme.resolve(Color.loopYellow, themed: .carbGold))
                     .alignmentGuide(.leading) { $0.width + 5 }
                     .accessibilityHidden(true)
             }
+            .offworldStatLabel("CARBS ON BOARD")
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Carbs on board"))
             .accessibilityValue(Text(
@@ -121,7 +123,7 @@ extension Home.RootView {
                 HStack {
                     Image(systemName: "syringe.fill")
                         .font(.callout)
-                        .foregroundColor(Color.insulin)
+                        .foregroundColor(OffworldTheme.resolve(Color.insulin, themed: .violet))
                     Text(
                         (
                             Formatter.decimalFormatterWithTwoFractionDigits
@@ -130,7 +132,9 @@ extension Home.RootView {
                             String(localized: " U", comment: "Insulin unit")
                     )
                     .font(.callout).fontWeight(.bold).fontDesign(.rounded)
+                    .offworldMonoDigits(.violet)
                 }
+                .offworldStatLabel("INSULIN ON BOARD", alignment: .bottomLeading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Insulin on board"))
                 .accessibilityValue(Text(
@@ -177,7 +181,7 @@ extension Home.RootView {
                     .foregroundStyle(.secondary)
                     .overlay(
                         Capsule()
-                            .stroke(Color.primary.opacity(0.4), lineWidth: 2)
+                            .stroke(OffworldTheme.roundButtonRim, lineWidth: OffworldTheme.isEnabled ? 1.5 : 2)
                     )
                 } else {
                     Image(systemName: "bell.fill")
@@ -186,7 +190,7 @@ extension Home.RootView {
                         .frame(width: 32, height: 32)
                         .overlay(
                             Circle()
-                                .stroke(Color.primary.opacity(0.4), lineWidth: 2)
+                                .stroke(OffworldTheme.roundButtonRim, lineWidth: OffworldTheme.isEnabled ? 1.5 : 2)
                         )
                 }
             }

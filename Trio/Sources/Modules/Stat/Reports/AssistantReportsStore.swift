@@ -11,6 +11,24 @@ struct AssistantReportsStore: Sendable {
 
     /// UserDefaults key holding the source URL typed on the Reports tab.
     static let sourceURLDefaultsKey = "bryan.reports.sourceURL"
+    /// Info.plist key holding an optional build-time default source (`$(BRYAN_REPORTS_SOURCE_URL)`).
+    /// The build setting is undefined in normal builds, so the value is then an empty string.
+    static let bundledSourceInfoKey = "BryanReportsSourceURL"
+
+    /// The build-time default source, or "" when the build did not set one.
+    static var bundledDefaultSource: String {
+        (Bundle.main.object(forInfoDictionaryKey: bundledSourceInfoKey) as? String) ?? ""
+    }
+
+    /// The source to use: what the user typed when there is any, otherwise the build-time default.
+    static func effectiveSource(stored: String, bundledDefault: String = AssistantReportsStore.bundledDefaultSource) -> String {
+        let typed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty { return typed }
+        let fallback = bundledDefault.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An unexpanded "$(...)" placeholder is not a source.
+        return fallback.hasPrefix("$(") ? "" : fallback
+    }
+
     static let requestTimeout: TimeInterval = 15
     /// Upper bound on an accepted document, so a wrong URL cannot fill memory or the cache.
     static let maximumDocumentBytes = 5 * 1024 * 1024
@@ -76,6 +94,33 @@ struct AssistantReportsStore: Sendable {
               let host = url.host, !host.isEmpty
         else { return nil }
         return url
+    }
+
+    /// Trims the text and accepts only absolute https URLs with a host.
+    static func validatedHTTPSURL(from text: String) -> URL? {
+        guard let url = validatedURL(from: text), url.scheme?.lowercased() == "https" else { return nil }
+        return url
+    }
+
+    /// Info.plist key holding an optional build-time link (`$(BRYAN_BASAL_URL)`), empty in normal builds.
+    static let bundledBasalInfoKey = "BryanBasalURL"
+
+    /// The build-time "Open Basal" link, or nil unless the build set a valid https address.
+    static var bundledBasalURL: URL? {
+        validatedHTTPSURL(from: (Bundle.main.object(forInfoDictionaryKey: bundledBasalInfoKey) as? String) ?? "")
+    }
+
+    /// True when the source is a computer on the local network (a `.local` name, `localhost`, or a
+    /// private IPv4 address). On a phone such a fetch needs the Local Network permission.
+    static func isLocalNetworkSource(_ source: String) -> Bool {
+        guard let host = validatedURL(from: source)?.host?.lowercased() else { return false }
+        if host == "localhost" || host.hasSuffix(".local") { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4, host.split(separator: ".").count == 4 else { return false }
+        return parts[0] == 10 || parts[0] == 127
+            || (parts[0] == 192 && parts[1] == 168)
+            || (parts[0] == 172 && (16 ... 31).contains(parts[1]))
+            || (parts[0] == 169 && parts[1] == 254)
     }
 
     // MARK: - Decoding

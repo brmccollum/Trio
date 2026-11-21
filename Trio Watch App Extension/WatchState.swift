@@ -54,6 +54,9 @@ import WatchConnectivity
     var forecastConeMax: [Double] = []
     var forecastLines: [String: [Double]] = [:] // "iob" / "cob" / "uam" / "zt" -> values
 
+    /// Optional Off-world appearance, mirrored from the phone. Display only; no request reads it.
+    var offworldTheme: Bool = WatchOffworldTheme.isEnabled
+
     // Acknowlegement handling
     var showCommsAnimation: Bool = false
     var showAcknowledgmentBanner: Bool = false
@@ -574,6 +577,11 @@ import WatchConnectivity
 
         if let isForecastCone = message[WatchMessageKeys.isForecastCone] as? Bool {
             self.isForecastCone = isForecastCone
+        }
+
+        if let offworldTheme = message[WatchMessageKeys.offworldTheme] as? Bool, offworldTheme != self.offworldTheme {
+            WatchOffworldTheme.isEnabled = offworldTheme
+            self.offworldTheme = offworldTheme
         }
 
         if let forecastPayload = message[WatchMessageKeys.forecastData] as? [String: Any] {

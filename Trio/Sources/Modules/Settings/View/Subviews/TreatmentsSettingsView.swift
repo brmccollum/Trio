@@ -17,7 +17,7 @@ struct TreatmentsSettingsView: BaseView {
                 Text("Quick-Pick Treatments").navigationLink(to: .quickPickTreatmentsConfig, from: self)
                 Text("Meal Settings").navigationLink(to: .mealSettings, from: self)
             }
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
         }
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))

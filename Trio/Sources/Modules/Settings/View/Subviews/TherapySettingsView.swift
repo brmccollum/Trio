@@ -19,15 +19,15 @@ struct TherapySettingsView: BaseView {
     var body: some View {
         Form {
             Section(
-                header: Text("Basic Settings"),
+                header: Text("Basic Settings").offworldSectionHeader(),
                 content: {
                     Text("Units and Limits").navigationLink(to: .unitsAndLimits, from: self)
                 }
             )
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
 
             Section(
-                header: Text("Basic Insulin Rates & Targets"),
+                header: Text("Basic Insulin Rates & Targets").offworldSectionHeader(),
                 content: {
                     Text("Glucose Targets").navigationLink(to: .targetsEditor, from: self)
                     Text("Basal Rates").navigationLink(to: .basalProfileEditor, from: self)
@@ -35,7 +35,7 @@ struct TherapySettingsView: BaseView {
                     Text("Insulin Sensitivities").navigationLink(to: .isfEditor, from: self)
                 }
             )
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
         }
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))

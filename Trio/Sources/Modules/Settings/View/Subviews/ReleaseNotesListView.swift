@@ -24,7 +24,7 @@ struct ReleaseNotesListView: View {
                         }
                     }
                 }
-            }.listRowBackground(Color.chart)
+            }.listRowBackground(OffworldRowFill())
         }
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))

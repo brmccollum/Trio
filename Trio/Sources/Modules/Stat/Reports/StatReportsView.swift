@@ -7,6 +7,7 @@ import SwiftUI
 struct StatReportsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(AppState.self) private var appState
+    @Environment(\.openURL) private var openURL
 
     @AppStorage(AssistantReportsStore.sourceURLDefaultsKey) private var sourceURL: String = ""
 
@@ -18,14 +19,21 @@ struct StatReportsView: View {
 
     private let store = AssistantReportsStore()
 
+    /// What is fetched: the typed source, or the build-time default when nothing is typed.
+    private var effectiveSource: String {
+        AssistantReportsStore.effectiveSource(stored: sourceURL)
+    }
+
     private var hasSource: Bool {
-        !sourceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !effectiveSource.isEmpty
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: Stat.RootView.Constants.spacing) {
+                basalButton
                 if hasSource {
+                    linkButtons
                     statusLine
                     reportList
                 } else {
@@ -42,9 +50,57 @@ struct StatReportsView: View {
         }
         .refreshable { await refresh() }
         .task {
-            draftURL = sourceURL
+            draftURL = effectiveSource
             if !hasSource { isSourceExpanded = true }
             await refresh()
+        }
+    }
+
+    // MARK: - Open Basal
+
+    /// Build-time link, shown whether or not the reports load. Hidden when the build set none.
+    @ViewBuilder private var basalButton: some View {
+        if let url = AssistantReportsStore.bundledBasalURL {
+            Button {
+                openURL(url)
+            } label: {
+                HStack {
+                    Text(verbatim: "Open Basal")
+                    Spacer()
+                    Image(systemName: "arrow.up.right.square")
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityHint(Text("Opens in the browser"))
+        }
+    }
+
+    // MARK: - Links
+
+    /// Buttons for the payload's optional `links`. Each opens its http/https address in the browser.
+    @ViewBuilder private var linkButtons: some View {
+        let links = snapshot?.payload.openableLinks ?? []
+        if !links.isEmpty {
+            VStack(spacing: 8) {
+                ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+                    Button {
+                        if let destination = link.destination { openURL(destination) }
+                    } label: {
+                        HStack {
+                            Text(link.displayTitle)
+                                .multilineTextAlignment(.leading)
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .accessibilityHidden(true)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint(Text("Opens in the browser"))
+                }
+            }
         }
     }
 
@@ -77,6 +133,20 @@ struct StatReportsView: View {
                     .foregroundStyle(Color.secondary)
                     Spacer(minLength: 0)
                 }
+                if AssistantReportsStore.isLocalNetworkSource(effectiveSource) {
+                    Text(
+                        verbatim: "The source is on your local network. Be on the same Wi-Fi, and allow Trio under Settings > Privacy & Security > Local Network."
+                    )
+                    .foregroundStyle(Color.secondary)
+                }
+                Button {
+                    Task { await refresh() }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isLoading)
+                .padding(.top, 2)
             }
         }
         .font(.footnote)
@@ -164,9 +234,9 @@ struct StatReportsView: View {
 
                     HStack {
                         Button("Save", action: saveSource)
-                            .disabled(draftURL.trimmingCharacters(in: .whitespacesAndNewlines) == sourceURL)
+                            .disabled(draftURL.trimmingCharacters(in: .whitespacesAndNewlines) == effectiveSource)
                         Spacer()
-                        if hasSource {
+                        if !sourceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Button("Clear", role: .destructive) {
                                 draftURL = ""
                                 saveSource()
@@ -191,18 +261,20 @@ struct StatReportsView: View {
 
     @MainActor private func saveSource() {
         let trimmed = draftURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        draftURL = trimmed
-        guard trimmed != sourceURL else { return }
-        sourceURL = trimmed
+        let before = effectiveSource
+        // Typing the build-time default back in (or clearing the field) stores nothing.
+        sourceURL = trimmed == AssistantReportsStore.effectiveSource(stored: "") ? "" : trimmed
+        draftURL = effectiveSource
+        guard effectiveSource != before else { return }
         snapshot = nil
         errorMessage = nil
-        guard !trimmed.isEmpty else { return }
+        guard hasSource else { return }
         Task { await refresh() }
     }
 
     /// One fetch for the current source. Runs the work off the main actor; never retries.
     @MainActor private func refresh() async {
-        let source = sourceURL
+        let source = effectiveSource
         guard hasSource, !isLoading else { return }
         isLoading = true
         let store = store
@@ -215,7 +287,7 @@ struct StatReportsView: View {
 
         isLoading = false
         // The source was edited while this was in flight; its result no longer applies.
-        guard source == sourceURL else { return }
+        guard source == effectiveSource else { return }
         snapshot = result.snapshot ?? snapshot
         errorMessage = result.errorMessage
     }
@@ -238,10 +310,14 @@ struct StatReportKindTag: View {
 
     var body: some View {
         Text(report.kindLabel)
+            .offworldChipText()
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.2)))
+            .background(
+                RoundedRectangle(cornerRadius: OffworldTheme.isEnabled ? 2 : 100, style: .continuous)
+                    .fill(color.opacity(0.2))
+            )
             .foregroundStyle(color)
     }
 }

@@ -75,7 +75,7 @@ extension History.RootView {
                     systemImage: "drop.fill"
                 )
             }
-        }.listRowBackground(Color.chart)
+        }.listRowBackground(OffworldRowFill())
     }
 
     func formatGlucose(_ value: Decimal, isManual: Bool) -> String {

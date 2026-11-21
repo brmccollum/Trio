@@ -90,17 +90,25 @@ struct ChartLegendView: View {
                                     Text(
                                         "To review or change your scheduled basal rates, go to Settings > Therapy > Basal Rates."
                                     )
+                                    offworldNote(
+                                        "Off-world theme: the scheduled rate is the faint chrome line. Basal is drawn hanging from the top of the strip, so a longer drop means a higher rate."
+                                    )
                                 },
-                                color: Color.insulin,
+                                color: OffworldTheme.resolve(Color.insulin, themed: .chrome),
                                 iconString: "ellipsis"
                             )
 
                             DefinitionRow(
                                 term: String(localized: "Temporary Basal Rate (TBR)"),
-                                definition: Text(
-                                    "Shows current or past TBRs, which can be set by the oref algorithm or manually."
-                                ),
-                                color: Color.insulin,
+                                definition: VStack(alignment: .leading, spacing: 10) {
+                                    Text(
+                                        "Shows current or past TBRs, which can be set by the oref algorithm or manually."
+                                    )
+                                    offworldNote(
+                                        "Off-world theme: delivered basal is a faint steel fill ending in a thin steel-blue line at the rate. Dimmer fill is your scheduled rate running with no temporary rate. A glowing pink bar marks a zero temp: no basal was delivered there."
+                                    )
+                                },
+                                color: OffworldTheme.resolve(Color.insulin, themed: .steel),
                                 iconString: "square"
                             )
 
@@ -126,6 +134,14 @@ struct ChartLegendView: View {
                                             "Displays real-time glucose readings from your CGM. Depending on your user interface settings, this may be displayed in a static (red, green, orange) or dynamic (full color spectrum) coloring scheme."
                                         )
                                     }
+                                    if OffworldTheme.isEnabled,
+                                       state.settingsManager.settings.glucoseColorScheme == .staticColor
+                                    {
+                                        // The theme changes this element's colours, so the legend says so.
+                                        Text(
+                                            verbatim: "Off-world theme: readings are drawn as a line that is cyan in range, amber at or above your high threshold and red at or below your low threshold. A break in the line means readings are missing for more than 11 minutes. The glucose target is the faint silver line; your high and low thresholds are the thin amber and red lines that fade toward the screen edges."
+                                        )
+                                    }
                                     Text(
                                         "To modify how glucose readings are displayed, go to Settings > Features > User Interface > Glucose Color Scheme."
                                     )
@@ -135,7 +151,10 @@ struct ChartLegendView: View {
                                         )
                                     }
                                 },
-                                color: Color.green,
+                                color: OffworldTheme.isEnabled && state.settingsManager.settings
+                                    .glucoseColorScheme == .staticColor
+                                    ? OffworldTheme.Swatch.cyan.color
+                                    : Color.green,
                                 iconString: state.settingsManager.settings.smoothGlucose ? "record.circle.fill" : "circle.fill"
                             )
 
@@ -148,17 +167,27 @@ struct ChartLegendView: View {
 
                             DefinitionRow(
                                 term: String(localized: "Bolus"),
-                                definition: Text(
-                                    "Shows an insulin dose, which can be a small automated dose (super-micro-bolus), a manually entered dose, or one given externally (e.g., a pen shot)."
-                                ),
-                                color: Color.insulin,
+                                definition: VStack(alignment: .leading, spacing: 10) {
+                                    Text(
+                                        "Shows an insulin dose, which can be a small automated dose (super-micro-bolus), a manually entered dose, or one given externally (e.g., a pen shot)."
+                                    )
+                                    offworldNote(
+                                        "Off-world theme: violet triangles with a silver rim (violet is insulin everywhere on Home; cyan is glucose only). Doses you gave (manual or external) are drawn larger than automated SMBs; within each kind a bigger dose is a bigger triangle."
+                                    )
+                                },
+                                color: OffworldTheme.resolve(Color.insulin, themed: .violet),
                                 iconString: "arrowtriangle.down.fill"
                             )
 
                             DefinitionRow(
                                 term: String(localized: "Carb Entry"),
-                                definition: Text("Tracks the carbohydrates you eat, entered to guide insulin dosing."),
-                                color: Color.orange,
+                                definition: VStack(alignment: .leading, spacing: 10) {
+                                    Text("Tracks the carbohydrates you eat, entered to guide insulin dosing.")
+                                    offworldNote(
+                                        "Off-world theme: a solid gold triangle, with the grams below it. A high glucose stretch is an amber line, never a triangle."
+                                    )
+                                },
+                                color: OffworldTheme.resolve(Color.orange, themed: .carbGold),
                                 iconString: "arrowtriangle.down.fill",
                                 shouldRotateIcon: true
                             )
@@ -172,9 +201,12 @@ struct ChartLegendView: View {
                                     Text(
                                         "To enable or configure Warsaw Method application in Trio, go to Settings > Features > Meal Settings."
                                     )
+                                    offworldNote(
+                                        "Off-world theme: a small hollow copper ring along the bottom of the chart, unlike the solid gold of entered carbs."
+                                    )
                                 },
-                                color: Color.brown,
-                                iconString: "circle.fill"
+                                color: OffworldTheme.resolve(Color.brown, themed: .copper),
+                                iconString: OffworldTheme.isEnabled ? "circle" : "circle.fill"
                             )
 
                             DefinitionRow(
@@ -200,7 +232,7 @@ struct ChartLegendView: View {
                                 definition: Text(
                                     "Shows the IOB value calculated by the algorithm at a specific time in the past. These values are snapshots and won’t change if insulin is added or removed after the fact."
                                 ),
-                                color: Color.darkerBlue.opacity(0.8),
+                                color: OffworldTheme.resolve(Color.darkerBlue.opacity(0.8), themed: .violet),
                                 iconString: "line.diagonal"
                             )
 
@@ -209,7 +241,7 @@ struct ChartLegendView: View {
                                 definition: Text(
                                     "Shows the COB value calculated by the algorithm at a specific time in the past. These values are snapshots and won’t change if carbs are added or removed after the fact."
                                 ),
-                                color: Color.orange.opacity(0.8),
+                                color: OffworldTheme.resolve(Color.orange.opacity(0.8), themed: .carbGold),
                                 iconString: "line.diagonal"
                             )
                         }.listRowBackground(Color.gray.opacity(0.1))
@@ -238,6 +270,14 @@ struct ChartLegendView: View {
         }
     }
 
+    /// A line added to an entry only while the Off-world theme is on, where the theme draws that
+    /// element differently from the stock description.
+    @ViewBuilder private func offworldNote(_ text: String) -> some View {
+        if OffworldTheme.isEnabled {
+            Text(verbatim: text)
+        }
+    }
+
     var legendLinesView: some View {
         Group {
             DefinitionRow(
@@ -245,7 +285,7 @@ struct ChartLegendView: View {
                 definition: Text(
                     "Forecasts future glucose readings based on the amount of insulin still active in the body."
                 ),
-                color: .insulin
+                color: OffworldTheme.isEnabled ? OffworldTheme.forecastLineColor(type: "iob") : .insulin
             )
 
             DefinitionRow(
@@ -253,7 +293,7 @@ struct ChartLegendView: View {
                 definition: Text(
                     "Forecasts the worst-case future glucose reading scenario if no carbs are absorbed and insulin delivery is stopped until glucose starts rising."
                 ),
-                color: .zt
+                color: OffworldTheme.isEnabled ? OffworldTheme.forecastLineColor(type: "zt") : .zt
             )
 
             DefinitionRow(
@@ -261,7 +301,7 @@ struct ChartLegendView: View {
                 definition: Text(
                     "Forecasts future glucose reading changes by considering the amount of carbohydrates still being absorbed in the body."
                 ),
-                color: .loopYellow
+                color: OffworldTheme.isEnabled ? OffworldTheme.forecastLineColor(type: "cob") : .loopYellow
             )
 
             DefinitionRow(
@@ -269,7 +309,7 @@ struct ChartLegendView: View {
                 definition: Text(
                     "Forecasts future glucose levels and insulin dosing needs for unexpected meals or other causes of glucose reading increases without prior notice."
                 ),
-                color: .uam
+                color: OffworldTheme.isEnabled ? OffworldTheme.forecastLineColor(type: "uam") : .uam
             )
         }
     }
@@ -281,11 +321,14 @@ struct ChartLegendView: View {
                 Text(
                     "For simplicity reasons, oref's various forecast curves are displayed as a \"Cone of Uncertainty\" that depicts a possible, forecasted range of future glucose fluctuation based on the current data and the algothim's result."
                 )
+                offworldNote(
+                    "Off-world theme: the forecast range is the soft violet band, fading with distance; its upper and lower edge are the highest and lowest forecast. The wave inside it is not a prediction of swings and its colours are not a warning; it only travels between those two edges, running from cyan through magenta to orange with distance."
+                )
                 Text(
                     "To modify how the forecast is displayed, go to Settings > Features > User Interface > Forecast Display Type."
                 )
             },
-            color: Color.blue.opacity(0.5)
+            color: OffworldTheme.isEnabled ? OffworldTheme.Swatch.violet.color.opacity(0.6) : Color.blue.opacity(0.5)
         )
     }
 }

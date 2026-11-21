@@ -267,7 +267,18 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                 )
 
                 if Decimal(latestGlucose.glucose) <= self.lowGlucose || Decimal(latestGlucose.glucose) >= self.highGlucose {
-                    watchState.currentGlucoseColorString = currentGlucoseColor.toHexString()
+                    // Off-world (display only): high follows Home's amber; low keeps the stock colour.
+                    watchState.currentGlucoseColorString = OffworldTheme.glucoseColor(
+                        stock: currentGlucoseColor,
+                        band: OffworldTheme.band(
+                            value: Decimal(latestGlucose.glucose),
+                            low: self.lowGlucose,
+                            high: self.highGlucose
+                        ),
+                        isStaticScheme: self.glucoseColorScheme == .staticColor,
+                        inRange: .ink,
+                        replacesDynamicInRange: false
+                    ).toHexString()
                 } else {
                     watchState.currentGlucoseColorString = "#ffffff" // white when in range; colored when out of range
                 }
@@ -289,7 +300,17 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                     return WatchGlucoseObject(
                         date: glucose.date ?? Date(),
                         glucose: glucoseValue,
-                        color: glucoseColor.toHexString()
+                        color: OffworldTheme.glucoseColor(
+                            stock: glucoseColor,
+                            band: OffworldTheme.band(
+                                value: Decimal(glucose.glucose),
+                                low: self.lowGlucose,
+                                high: self.highGlucose
+                            ),
+                            isStaticScheme: self.glucoseColorScheme == .staticColor,
+                            inRange: .cyan,
+                            replacesDynamicInRange: false
+                        ).toHexString()
                     )
                 }
                 .sorted { $0.date < $1.date }
@@ -358,6 +379,9 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
 
                 watchState.showForecast = self.settingsManager.settings.showForecastWatch
                 watchState.isForecastCone = self.settingsManager.settings.forecastDisplayType == .cone
+
+                // Appearance only: lets the watch mirror the optional Off-world theme.
+                watchState.offworldTheme = OffworldTheme.isEnabled
 
                 // Forecast data comes from OrefDetermination's `forecasts` CoreData
                 // relationship (Set<Forecast>), NOT a `.predictions` property.
@@ -546,7 +570,8 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             WatchMessageKeys.confirmBolusFaster: state.confirmBolusFaster,
             WatchMessageKeys.units: state.units.rawValue,
             WatchMessageKeys.showForecastWatch: state.showForecast,
-            WatchMessageKeys.isForecastCone: state.isForecastCone
+            WatchMessageKeys.isForecastCone: state.isForecastCone,
+            WatchMessageKeys.offworldTheme: state.offworldTheme
         ]
 
         var forecastData: [String: Any] = [

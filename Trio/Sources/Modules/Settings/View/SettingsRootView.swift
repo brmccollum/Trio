@@ -205,12 +205,12 @@ extension Settings {
                                 }
                             }
                         }
-                    ).listRowBackground(Color.chart)
+                    ).listRowBackground(OffworldRowFill())
 
                     let miniHintTextColorForDisabled: Color = colorScheme == .dark ? .orange : .accentColor
                     let miniHintTextColor: Color = dosingModeDisabled ? miniHintTextColorForDisabled : .secondary
                     Section(
-                        header: Text("Automated Insulin Delivery"),
+                        header: Text("Automated Insulin Delivery").offworldSectionHeader(),
                         content: {
                             VStack {
                                 Picker(
@@ -264,24 +264,42 @@ extension Settings {
                             }.padding(.bottom)
                         }
                     )
-                    .listRowBackground(Color.chart)
+                    .listRowBackground(OffworldRowFill())
                     .settingsSearchTarget(label: String(localized: "Dosing Mode"))
                     .onAppear {
                         dosingModeDisabled = !state.hasCgmAndPump()
                     }
 
                     Section(
-                        header: Text("Trio Configuration"),
+                        header: Text("Trio Configuration").offworldSectionHeader(),
                         content: {
                             ForEach(SettingItems.trioConfig) { item in
                                 Text(LocalizedStringKey(item.title)).navigationLink(to: item.view, from: self)
                             }
                         }
                     )
-                    .listRowBackground(Color.chart)
+                    .listRowBackground(OffworldRowFill())
+
+                    if let basalURL = AssistantReportsStore.bundledBasalURL {
+                        // Build-time link (BRYAN_BASAL_URL); absent in normal builds.
+                        Section {
+                            Button {
+                                UIApplication.shared.open(basalURL)
+                            } label: {
+                                HStack {
+                                    Text(verbatim: "Open Basal")
+                                    Spacer()
+                                    Image(systemName: "arrow.up.right.square")
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                            .accessibilityHint(Text("Opens in the browser"))
+                        }
+                        .listRowBackground(OffworldRowFill())
+                    }
 
                     Section(
-                        header: Text("Support & Community"),
+                        header: Text("Support & Community").offworldSectionHeader(),
                         content: {
                             Button {
                                 showShareSheet.toggle()
@@ -345,11 +363,11 @@ extension Settings {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                    ).listRowBackground(Color.chart)
+                    ).listRowBackground(OffworldRowFill())
 
                     if !releaseNotesService.releases.isEmpty {
                         Section(
-                            header: Text("Release Notes"),
+                            header: Text("Release Notes").offworldSectionHeader(),
                             content: {
                                 if let current = releaseNotesService.notes {
                                     NavigationLink(destination: ReleaseNotesDetailView(notes: current)) {
@@ -384,11 +402,11 @@ extension Settings {
                                     }
                                 }
                             }
-                        ).listRowBackground(Color.chart)
+                        ).listRowBackground(OffworldRowFill())
                     }
 
                     Section(
-                        header: Text("Trio Backup"),
+                        header: Text("Trio Backup").offworldSectionHeader(),
                         content: {
                             Text(String(
                                 localized: "Export Settings",
@@ -396,11 +414,11 @@ extension Settings {
                             ))
                                 .navigationLink(to: .settingsExport, from: self)
                         }
-                    ).listRowBackground(Color.chart)
+                    ).listRowBackground(OffworldRowFill())
 
                 } else {
                     Section(
-                        header: Text("Search Results"),
+                        header: Text("Search Results").offworldSectionHeader(),
                         content: {
                             if filteredItems.isNotEmpty {
                                 ForEach(filteredItems) { filteredItem in
@@ -426,7 +444,7 @@ extension Settings {
                                     Text("found.")
                             }
                         }
-                    ).listRowBackground(Color.chart)
+                    ).listRowBackground(OffworldRowFill())
                 }
             }
             .overlay(alignment: .bottom) {
@@ -441,7 +459,9 @@ extension Settings {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .scrollContentBackground(.hidden).background(appState.trioBackgroundColor(for: colorScheme))
+            .scrollContentBackground(.hidden)
+            .background(OffworldHaze())
+            .background(appState.trioBackgroundColor(for: colorScheme))
             .sheet(item: $hintPayload) { payload in
                 SettingInputHintView(
                     hintDetent: $hintDetent,

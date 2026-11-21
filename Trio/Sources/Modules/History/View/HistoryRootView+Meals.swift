@@ -19,7 +19,7 @@ extension History.RootView {
                     systemImage: "fork.knife"
                 )
             }
-        }.listRowBackground(Color.chart)
+        }.listRowBackground(OffworldRowFill())
     }
 
     @ViewBuilder func mealView(_ meal: CarbEntryStored) -> some View {

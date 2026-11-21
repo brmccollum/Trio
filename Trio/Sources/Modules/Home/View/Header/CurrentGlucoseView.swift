@@ -50,7 +50,10 @@ struct CurrentGlucoseView: View {
     }
 
     var body: some View {
-        let triangleColor = Color(red: 0.262745098, green: 0.7333333333, blue: 0.9137254902)
+        let triangleColor = OffworldTheme.resolve(
+            Color(red: 0.262745098, green: 0.7333333333, blue: 0.9137254902),
+            themed: .cyan
+        )
 
         if cgmAvailable {
             if let stale = stalenessState {
@@ -113,8 +116,16 @@ struct CurrentGlucoseView: View {
                 )
             }
 
-            TrendShape(gradient: angularGradient, color: triangleColor, showArrow: true)
-                .rotationEffect(.degrees(rotationDegrees))
+            // The stock ring gradient is decoration only (trend is the pointer's rotation), so the
+            // Off-world theme may swap it for a brass bezel.
+            TrendShape(
+                gradient: OffworldTheme.isEnabled ? OffworldTheme.bezelGradient : angularGradient,
+                color: triangleColor,
+                showArrow: true
+            )
+            .rotationEffect(.degrees(rotationDegrees))
+
+            OffworldBezelDecor(diameter: 130, ringWidth: 6)
 
             VStack(alignment: .center) {
                 bobbleContent()
@@ -242,8 +253,10 @@ struct CurrentGlucoseView: View {
                     ? Decimal(glucoseValue).description
                     : Decimal(glucoseValue).formattedAsMmolL
                 Text(glucoseValue == 400 ? "HIGH" : displayGlucose)
+                    .offworldDisplayNumber(size: 36)
                     .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .foregroundStyle(glucoseColor(for: glucoseValue))
+                    .foregroundStyle(themedGlucoseColor(for: glucoseValue))
+                    .offworldGlow(glowColor(for: glucoseValue))
             } else {
                 Text("– –")
                     .font(.system(size: 40, weight: .bold, design: .rounded))
@@ -254,8 +267,9 @@ struct CurrentGlucoseView: View {
             HStack {
                 let minutesAgoString = TimeAgoFormatter.minutesAgo(from: glucose.last?.date)
                 Group {
-                    Text(minutesAgoString)
-                    Text(delta)
+                    // Off-world: minutes ago and delta in chrome; stock styling below applies otherwise.
+                    Text(minutesAgoString).offworldReadout(.chrome)
+                    Text(delta).offworldReadout(.chrome)
                 }
                 .font(.callout).fontWeight(.bold)
                 .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.9) : Color.secondary)
@@ -363,6 +377,26 @@ struct CurrentGlucoseView: View {
         case .warning: return .orange
         case .normal: return .secondary
         }
+    }
+
+    private func band(for glucoseValue: Int16) -> OffworldTheme.GlucoseBand {
+        OffworldTheme.band(value: Decimal(glucoseValue), low: lowGlucose, high: highGlucose)
+    }
+
+    /// Off-world: in range is warm white, low keeps its stock colour, high is amber (static scheme).
+    private func themedGlucoseColor(for glucoseValue: Int16) -> Color {
+        OffworldTheme.glucoseColor(
+            stock: glucoseColor(for: glucoseValue),
+            band: band(for: glucoseValue),
+            isStaticScheme: glucoseColorScheme == .staticColor,
+            inRange: .ink,
+            replacesDynamicInRange: true
+        )
+    }
+
+    /// Off-world glow: same colour as the number, cyan when the number is the in-range warm white.
+    private func glowColor(for glucoseValue: Int16) -> Color {
+        band(for: glucoseValue) == .inRange ? OffworldTheme.Swatch.cyan.color : themedGlucoseColor(for: glucoseValue)
     }
 
     private func glucoseColor(for glucoseValue: Int16) -> Color {

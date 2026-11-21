@@ -17,7 +17,7 @@ struct TidepoolStartView: BaseView {
     var body: some View {
         Form {
             Section(
-                header: Text("Tidepool Integration"),
+                header: Text("Tidepool Integration").offworldSectionHeader(),
                 content:
                 {
                     VStack {
@@ -74,7 +74,7 @@ struct TidepoolStartView: BaseView {
                         }.padding(.top)
                     }.padding(.vertical)
                 }
-            ).listRowBackground(Color.chart)
+            ).listRowBackground(OffworldRowFill())
         }
         .sheet(isPresented: $state.setupTidepool) {
             if let serviceUIType = state.serviceUIType,

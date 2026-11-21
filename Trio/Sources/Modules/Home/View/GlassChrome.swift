@@ -98,18 +98,23 @@ struct GlassMaterialFill<S: InsettableShape>: ViewModifier {
 }
 
 extension View {
-    func glassPanel(
+    @ViewBuilder func glassPanel(
         tint: Color? = nil,
         tintOpacity: Double = 0.12,
         strokeOpacity: Double = 0.35,
         strokeWidth: CGFloat = 1
     ) -> some View {
-        modifier(GlassPanelBackground(
-            tint: tint,
-            tintOpacity: tintOpacity,
-            strokeOpacity: strokeOpacity,
-            strokeWidth: strokeWidth
-        ))
+        if OffworldTheme.isEnabled {
+            // Off-world: same shape and size, panel gradient instead of grey glass.
+            background(OffworldPillBackground(tint: tint, tintOpacity: tintOpacity, strokeOpacity: strokeOpacity))
+        } else {
+            modifier(GlassPanelBackground(
+                tint: tint,
+                tintOpacity: tintOpacity,
+                strokeOpacity: strokeOpacity,
+                strokeWidth: strokeWidth
+            ))
+        }
     }
 
     /// Material fill for a small shape (capsule/circle) that turns opaque under

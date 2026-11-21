@@ -30,23 +30,45 @@ struct CarbView: ChartContent {
                     MainChartHelper.Config.maxCarbSize
                 )
 
-                PointMark(
-                    x: .value("Time", carbDate, unit: .second),
-                    y: .value("Value", yPosition)
-                )
-                .symbol {
-                    Image(systemName: "arrowtriangle.down.fill").font(.system(size: size)).foregroundStyle(Color.orange)
-                        .rotationEffect(.degrees(180))
-                }
+                if OffworldTheme.isEnabled {
+                    PointMark(
+                        x: .value("Time", carbDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbol {
+                        OffworldChartGlyph(kind: .carb, stockSize: size)
+                    }
 
-                PointMark(
-                    x: .value("Time", carbDate, unit: .second),
-                    y: .value("Value", yPosition)
-                )
-                .symbolSize(0)
-                .annotation(position: .bottom) {
-                    Text(Formatter.integerFormatter.string(from: carbAmount as NSNumber)!).font(.caption2)
-                        .foregroundStyle(Color.primary)
+                    PointMark(
+                        x: .value("Time", carbDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbolSize(0)
+                    .annotation(position: .bottom, spacing: 0) {
+                        Text(Formatter.integerFormatter.string(from: carbAmount as NSNumber)!)
+                            .font(OffworldTheme.chartAmountFont)
+                            .foregroundStyle(OffworldTheme.Swatch.muted.color)
+                            .padding(.top, OffworldChartGlyph.labelClearance(kind: .carb, stockSize: size))
+                    }
+                } else {
+                    PointMark(
+                        x: .value("Time", carbDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbol {
+                        Image(systemName: "arrowtriangle.down.fill").font(.system(size: size)).foregroundStyle(Color.orange)
+                            .rotationEffect(.degrees(180))
+                    }
+
+                    PointMark(
+                        x: .value("Time", carbDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbolSize(0)
+                    .annotation(position: .bottom) {
+                        Text(Formatter.integerFormatter.string(from: carbAmount as NSNumber)!).font(.caption2)
+                            .foregroundStyle(Color.primary)
+                    }
                 }
             }
         }
@@ -58,12 +80,23 @@ struct CarbView: ChartContent {
             let size = (MainChartHelper.Config.fpuSize + CGFloat(fpuAmount) * MainChartHelper.Config.carbsScale) * 1.8
             let yPosition = minValue // value is parsed to mmol/L when passed into struct based on user settings
 
-            PointMark(
-                x: .value("Time", fpu.date ?? Date(), unit: .second),
-                y: .value("Value", yPosition)
-            )
-            .symbolSize(size)
-            .foregroundStyle(Color.brown)
+            if OffworldTheme.isEnabled {
+                // Off-world: a dim hollow ring, distinct from the solid gold of entered carbs.
+                PointMark(
+                    x: .value("Time", fpu.date ?? Date(), unit: .second),
+                    y: .value("Value", yPosition)
+                )
+                .symbol {
+                    OffworldFpuGlyph()
+                }
+            } else {
+                PointMark(
+                    x: .value("Time", fpu.date ?? Date(), unit: .second),
+                    y: .value("Value", yPosition)
+                )
+                .symbolSize(size)
+                .foregroundStyle(Color.brown)
+            }
         }
     }
 }

@@ -113,21 +113,58 @@ struct AssistantReport: Codable, Equatable, Hashable, Identifiable {
     }
 }
 
+/// An optional link sent with the reports, shown as a button that opens the browser.
+struct AssistantReportLink: Codable, Equatable, Hashable {
+    var title: String
+    /// Raw text from the payload. Only `destination` (http/https) is ever opened.
+    var url: String
+
+    init(title: String = "", url: String = "") {
+        self.title = title
+        self.url = url
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = container.lenientString(.title) ?? ""
+        url = container.lenientString(.url) ?? ""
+    }
+
+    /// The URL to open, or nil unless it is an absolute http or https address with a host.
+    var destination: URL? { AssistantReportsStore.validatedURL(from: url) }
+
+    /// Button text: the title, or the host when the title is blank.
+    var displayTitle: String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return destination?.host ?? url
+    }
+}
+
 /// The JSON document served by the report source.
 struct AssistantReportsPayload: Codable, Equatable {
     /// ISO 8601 text, as sent. Parsed on demand by `updatedAtDate`.
     var updatedAt: String?
     var reports: [AssistantReport]
+    /// Optional top-level links, as sent. Use `openableLinks` for display.
+    var links: [AssistantReportLink]
 
-    init(updatedAt: String? = nil, reports: [AssistantReport] = []) {
+    init(updatedAt: String? = nil, reports: [AssistantReport] = [], links: [AssistantReportLink] = []) {
         self.updatedAt = updatedAt
         self.reports = reports
+        self.links = links
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         updatedAt = container.lenientString(.updatedAt)
         reports = (try? container.decodeIfPresent(LossyArray<AssistantReport>.self, forKey: .reports))?.elements ?? []
+        links = (try? container.decodeIfPresent(LossyArray<AssistantReportLink>.self, forKey: .links))?.elements ?? []
+    }
+
+    /// Links that may be shown and opened: http/https only, everything else is dropped.
+    var openableLinks: [AssistantReportLink] {
+        links.filter { $0.destination != nil }
     }
 
     /// Reports newest first by `date`. Reports sharing a date keep the order they were sent in.
@@ -178,6 +215,9 @@ private struct LossyArray<Element: Decodable>: Decodable {
         while !container.isAtEnd {
             if let element = try? container.decode(Element.self) {
                 elements.append(element)
+            } else if (try? container.decodeNil()) == true {
+                // A null element: `decodeNil` consumed it.
+                continue
             } else {
                 // Advance past the bad element; a failed decode does not move the index.
                 _ = try container.decode(Skipped.self)

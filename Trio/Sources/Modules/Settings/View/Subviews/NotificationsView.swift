@@ -34,7 +34,7 @@ struct NotificationsView: BaseView {
     var body: some View {
         List {
             Section(
-                header: Text("Mute Trio Alarms"),
+                header: Text("Mute Trio Alarms").offworldSectionHeader(),
                 content: {
                     VStack {
                         Button {
@@ -50,19 +50,19 @@ struct NotificationsView: BaseView {
                         .buttonStyle(.bordered)
                     }.padding(.vertical)
                 }
-            ).listRowBackground(Color.chart)
+            ).listRowBackground(OffworldRowFill())
 
             Section(
-                header: Text("Manage iOS Preferences"),
+                header: Text("Manage iOS Preferences").offworldSectionHeader(),
                 content: {
                     notificationsEnabledStatus
 
                     manageNotifications
                 }
-            ).listRowBackground(Color.chart)
+            ).listRowBackground(OffworldRowFill())
 
             Section(
-                header: Text("Notification Center"),
+                header: Text("Notification Center").offworldSectionHeader(),
                 content: {
                     Text("Glucose Alarms")
                         .navigationLink(to: .glucoseAlerts, from: self)
@@ -73,10 +73,10 @@ struct NotificationsView: BaseView {
                     Text("Day & Night Windows")
                         .navigationLink(to: .alarmWindows, from: self)
                 }
-            ).listRowBackground(Color.chart)
+            ).listRowBackground(OffworldRowFill())
 
             Section(
-                header: Text("Other Notifications"),
+                header: Text("Other Notifications").offworldSectionHeader(),
                 content: {
                     if #available(iOS 16.2, *) {
                         Text("Live Activity").navigationLink(to: .liveActivitySettings, from: self)
@@ -84,7 +84,7 @@ struct NotificationsView: BaseView {
 
                     Text("Calendar Events").navigationLink(to: .calendarEventSettings, from: self)
                 }
-            ).listRowBackground(Color.chart)
+            ).listRowBackground(OffworldRowFill())
         }
         .listSectionSpacing(sectionSpacing)
         .onReceive(

@@ -19,7 +19,7 @@ extension History.RootView {
                     systemImage: "syringe"
                 )
             }
-        }.listRowBackground(Color.chart)
+        }.listRowBackground(OffworldRowFill())
     }
 
     var filteredPumpEvents: [PumpEventStored] {

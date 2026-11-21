@@ -166,7 +166,11 @@ extension MainChartCanvas {
                 Date(timeIntervalSince1970: TimeInterval(NSDate().timeIntervalSince1970)),
                 unit: .second
             )
-        ).lineStyle(.init(lineWidth: 2, dash: [3])).foregroundStyle(Color(.systemGray2))
+        )
+        .lineStyle(OffworldTheme.isEnabled ? .init(lineWidth: 1) : .init(lineWidth: 2, dash: [3]))
+        .foregroundStyle(
+            OffworldTheme.isEnabled ? OffworldTheme.Swatch.cyan.color.opacity(0.35) : Color(.systemGray2)
+        )
     }
 
     /// High and low threshold lines. Horizontal rules span the whole x-domain, so they stay
@@ -194,12 +198,26 @@ extension MainChartCanvas {
                 glucoseColorScheme: glucoseColorScheme
             )
 
-            RuleMark(y: .value("High", units == .mgdL ? highGlucose : highGlucose.asMmolL))
-                .foregroundStyle(highColor)
-                .lineStyle(.init(lineWidth: 1, dash: [5]))
-            RuleMark(y: .value("Low", units == .mgdL ? lowGlucose : lowGlucose.asMmolL))
-                .foregroundStyle(lowColor)
-                .lineStyle(.init(lineWidth: 1, dash: [5]))
+            let offworldStatic = OffworldTheme.isEnabled && glucoseColorScheme == .staticColor
+            if offworldStatic {
+                // Off-world: faint cyan in-range band between the two thresholds.
+                RectangleMark(
+                    yStart: .value("Low", units == .mgdL ? lowGlucose : lowGlucose.asMmolL),
+                    yEnd: .value("High", units == .mgdL ? highGlucose : highGlucose.asMmolL)
+                )
+                .foregroundStyle(OffworldTheme.Swatch.cyan.color.opacity(0.09))
+            }
+
+            // Off-world draws both thresholds as fading hairlines in the chart shell instead
+            // (`MainChartView.offworldThresholdLines`), so they fade relative to the screen.
+            if !OffworldTheme.isEnabled {
+                RuleMark(y: .value("High", units == .mgdL ? highGlucose : highGlucose.asMmolL))
+                    .foregroundStyle(offworldStatic ? OffworldTheme.Swatch.muted.color : highColor)
+                    .lineStyle(.init(lineWidth: 1, dash: [5]))
+                RuleMark(y: .value("Low", units == .mgdL ? lowGlucose : lowGlucose.asMmolL))
+                    .foregroundStyle(lowColor)
+                    .lineStyle(.init(lineWidth: 1, dash: [5]))
+            }
         }
     }
 
@@ -235,7 +253,10 @@ extension MainChartCanvas {
 
     var mainChartXAxis: some AxisContent {
         AxisMarks(values: hourAxisMarks(over: windowStart ... windowEnd)) { _ in
-            if displayXgridLines {
+            if displayXgridLines, OffworldTheme.isEnabled {
+                AxisGridLine(stroke: .init(lineWidth: 0.5))
+                    .foregroundStyle(OffworldTheme.Swatch.cyan.color.opacity(0.055))
+            } else if displayXgridLines {
                 AxisGridLine(stroke: .init(lineWidth: 0.5, dash: [2, 3]))
             } else {
                 AxisGridLine(stroke: .init(lineWidth: 0, dash: [2, 3]))
@@ -248,7 +269,10 @@ extension MainChartCanvas {
     /// `mainChartXAxis` (grid lines only) at the same absolute-anchored mark dates.
     var basalChartXAxis: some AxisContent {
         AxisMarks(preset: .aligned, values: hourAxisMarks(over: windowStart ... windowEnd)) { value in
-            if displayXgridLines {
+            if displayXgridLines, OffworldTheme.isEnabled {
+                AxisGridLine(stroke: .init(lineWidth: 0.5))
+                    .foregroundStyle(OffworldTheme.Swatch.cyan.color.opacity(0.055))
+            } else if displayXgridLines {
                 AxisGridLine(stroke: .init(lineWidth: 0.5, dash: [2, 3]))
             } else {
                 AxisGridLine(stroke: .init(lineWidth: 0, dash: [2, 3]))
@@ -258,12 +282,13 @@ extension MainChartCanvas {
             if let date = value.as(Date.self), calendar.component(.hour, from: date) == 0 {
                 AxisValueLabel(anchor: .top) {
                     Text(date.formatted(.dateTime.weekday(.abbreviated).day(.twoDigits)).uppercased())
-                        .font(.footnote).bold()
-                        .foregroundStyle(Color.primary)
+                        .font(OffworldTheme.axisLabelFont(stock: .footnote)).bold()
+                        .foregroundStyle(OffworldTheme.isEnabled ? OffworldTheme.Swatch.chrome.color.opacity(0.7) : Color.primary)
                 }
             } else {
                 AxisValueLabel(format: .dateTime.hour(.defaultDigits(amPM: .narrow)), anchor: .top)
-                    .font(.footnote).foregroundStyle(Color.primary)
+                    .font(OffworldTheme.axisLabelFont(stock: .footnote))
+                    .foregroundStyle(OffworldTheme.isEnabled ? OffworldTheme.Swatch.chrome.color.opacity(0.7) : Color.primary)
             }
         }
     }
@@ -274,7 +299,10 @@ extension MainChartCanvas {
         // COB/IOB domain the chart is scaled to.
         let domain = combinedYDomain()
         return AxisMarks(position: .trailing, values: [domain.lowerBound, domain.upperBound]) { _ in
-            if displayYgridLines {
+            if displayYgridLines, OffworldTheme.isEnabled {
+                AxisGridLine(stroke: .init(lineWidth: 0.5))
+                    .foregroundStyle(OffworldTheme.Swatch.cyan.color.opacity(0.055))
+            } else if displayYgridLines {
                 AxisGridLine(stroke: .init(lineWidth: 0.5, dash: [2, 3]))
             } else {
                 AxisGridLine(stroke: .init(lineWidth: 0, dash: [2, 3]))

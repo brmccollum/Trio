@@ -58,9 +58,13 @@ extension Color {
     static let loopYellow = Color("LoopYellow")
     static let loopRed = Color("LoopRed")
     static let loopManualTemp = Color("ManualTempBasal")
-    static let bgDarkBlue = Color("Background_DarkBlue")
-    static let bgDarkerDarkBlue = Color("Background_DarkerDarkBlue")
-    static let chart = Color("Chart")
+    private static let stockBgDarkBlue = Color("Background_DarkBlue")
+    private static let stockBgDarkerDarkBlue = Color("Background_DarkerDarkBlue")
+    private static let stockChart = Color("Chart")
+    // Neutral surfaces only: these three follow the optional Off-world theme (see OffworldTheme).
+    static var bgDarkBlue: Color { OffworldTheme.resolve(stockBgDarkBlue, themed: .backgroundLift) }
+    static var bgDarkerDarkBlue: Color { OffworldTheme.resolve(stockBgDarkerDarkBlue, themed: .background) }
+    static var chart: Color { OffworldTheme.resolve(stockChart, themed: .panelRaised) }
     static let tabBar = Color("TabBar")
     //   static let insulin = Color("Insulin")
     static let uam = Color("UAM")

@@ -19,14 +19,14 @@ struct DevicesView: BaseView {
     var body: some View {
         Form {
             Section(
-                header: Text("Setup & Configuraton"),
+                header: Text("Setup & Configuraton").offworldSectionHeader(),
                 content: {
                     Text("Insulin Pump").navigationLink(to: .pumpConfig, from: self)
                     Text("Continuous Glucose Monitor").navigationLink(to: .cgm, from: self)
                     Text("Smart Watch").navigationLink(to: .watch, from: self)
                 }
             )
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
         }
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))

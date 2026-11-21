@@ -177,6 +177,7 @@ extension Notification.Name {
         )
         // Fix bug in iOS 18 related to the translucent tab bar
         configureTabBarAppearance()
+        OffworldTheme.applyUIKitChrome()
 
         deferredInitialization()
     }
@@ -348,7 +349,10 @@ extension Notification.Name {
                 } else if showOnboardingCompletedSplash {
                     LogoBurstSplash(isActive: $showOnboardingCompletedSplash) {
                         Main.RootView(resolver: resolver)
-                            .preferredColorScheme(colorScheme(for: colorSchemePreference))
+                            .preferredColorScheme(OffworldTheme.colorScheme(
+                                stock: colorScheme(for: colorSchemePreference),
+                                enabled: appState.offworldEnabled
+                            ))
                             .environment(
                                 \.managedObjectContext,
                                 coreDataStack.persistentContainer.viewContext
@@ -368,7 +372,10 @@ extension Notification.Name {
                     .transition(.opacity)
                 } else {
                     Main.RootView(resolver: resolver)
-                        .preferredColorScheme(colorScheme(for: colorSchemePreference) ?? nil)
+                        .preferredColorScheme(OffworldTheme.colorScheme(
+                            stock: colorScheme(for: colorSchemePreference),
+                            enabled: appState.offworldEnabled
+                        ))
                         .environment(\.managedObjectContext, coreDataStack.persistentContainer.viewContext)
                         .environment(appState)
                         .environmentObject(Icons())

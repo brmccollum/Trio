@@ -34,7 +34,7 @@ private struct SettingsSearchHighlightAnimationModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .listRowBackground(
-                Color.chart.overlay(Color.accentColor.opacity(highlightOpacity))
+                OffworldRowFill().overlay(Color.accentColor.opacity(highlightOpacity))
                     .animation(.easeOut(duration: 1.2), value: highlightOpacity)
             )
             .onAppear {

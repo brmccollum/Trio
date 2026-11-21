@@ -63,4 +63,7 @@ enum WatchMessageKeys {
     static let forecastConeMin = "forecastConeMin"
     static let forecastConeMax = "forecastConeMax"
     static let forecastLines = "forecastLines"
+
+    // Appearance (display only; never read by any command path)
+    static let offworldTheme = "offworldTheme"
 }

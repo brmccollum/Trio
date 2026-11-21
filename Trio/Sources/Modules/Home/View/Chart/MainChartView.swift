@@ -131,6 +131,12 @@ struct MainChartView: View {
             .offset(x: -canvasOffsetX)
             .scaleEffect(x: pinchScale, y: 1, anchor: pinchScaleAnchor)
 
+            if OffworldTheme.isEnabled, thresholdLines {
+                ZStack(alignment: .topLeading) { offworldThresholdLines }
+                    .frame(width: viewportWidth, height: basalHeight + mainHeight + cobIobHeight, alignment: .topLeading)
+                    .allowsHitTesting(false)
+            }
+
             nowOffscreenGradient
 
             // Pinned y-axis labels over the glucose pane, ABOVE the scrolled-back gradient
@@ -346,6 +352,44 @@ extension MainChartView {
         return basalHeight + mainHeight * CGFloat(1 - min(max(fraction, 0), 1))
     }
 
+    /// Off-world only: the high and low thresholds as thin glowing hairlines that fade toward both
+    /// screen edges. Same values and the same y mapping as the selection dots; decoration-free of touches.
+    @ViewBuilder var offworldThresholdLines: some View {
+        let domain = paddedGlucoseYDomain
+        let span = domain.upperBound - domain.lowerBound
+        ForEach([highGlucose, lowGlucose], id: \.self) { threshold in
+            let value = units == .mgdL ? threshold : threshold.asMmolL
+            let fraction = span == 0 ? 0.5 : Double(truncating: ((value - domain.lowerBound) / span) as NSDecimalNumber)
+            if fraction >= 0, fraction <= 1 {
+                // amber for high and the stock low colour for low (static scheme); stock colours otherwise
+                let color = OffworldTheme.homeGlucoseColor(
+                    value: threshold,
+                    low: lowGlucose,
+                    high: highGlucose,
+                    target: currentGlucoseTarget,
+                    scheme: glucoseColorScheme,
+                    inRange: .cyan
+                )
+                let fade = LinearGradient(
+                    stops: [
+                        .init(color: color.opacity(0), location: 0),
+                        .init(color: color, location: 0.2),
+                        .init(color: color, location: 0.8),
+                        .init(color: color.opacity(0), location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                ZStack {
+                    Rectangle().fill(fade).frame(height: 4).opacity(0.3).blur(radius: 2)
+                    Rectangle().fill(fade).frame(height: 0.75)
+                }
+                .frame(width: viewportWidth, height: 8)
+                .position(x: viewportWidth / 2, y: basalHeight + mainHeight * CGFloat(1 - fraction))
+            }
+        }
+    }
+
     private func cobIobYPosition(forChartValue value: Double) -> CGFloat {
         let domain = MainChartHelper.cobIobYDomain(
             minCob: state.minValueCobChart,
@@ -399,17 +443,18 @@ extension MainChartView {
                 let glucoseY = glucoseYPosition(for: selectedGlucose)
 
                 // Vertical indicator through all three panes.
+                // Off-world: thin silver rule, silver ring with a cyan core. Same sizes and positions.
                 Rectangle()
-                    .fill(Color.tabBar)
-                    .frame(width: 2, height: stackHeight)
+                    .fill(OffworldTheme.resolve(Color.tabBar, themed: .silver))
+                    .frame(width: OffworldTheme.isEnabled ? 1 : 2, height: stackHeight)
                     .position(x: x, y: stackHeight / 2)
 
                 // Selected glucose highlight.
-                Circle().fill(markColor)
+                Circle().fill(OffworldTheme.resolve(markColor, themed: .silver))
                     .frame(width: 15, height: 15)
                     .position(x: x, y: glucoseY)
-                Circle().fill(Color.primary)
-                    .frame(width: 6, height: 6)
+                Circle().fill(OffworldTheme.resolve(Color.primary, themed: .cyan))
+                    .frame(width: OffworldTheme.isEnabled ? 9 : 6, height: OffworldTheme.isEnabled ? 9 : 6)
                     .position(x: x, y: glucoseY)
 
                 // Selected COB / (scaled) IOB dots on the bottom pane, at the
@@ -786,7 +831,10 @@ struct StaticYAxisChart: View {
 
     private var mainChartYAxis: some AxisContent {
         AxisMarks(position: .trailing) { value in
-            if displayYgridLines {
+            if displayYgridLines, OffworldTheme.isEnabled {
+                AxisGridLine(stroke: .init(lineWidth: 0.5))
+                    .foregroundStyle(OffworldTheme.Swatch.cyan.color.opacity(0.055))
+            } else if displayYgridLines {
                 AxisGridLine(stroke: .init(lineWidth: 0.5, dash: [2, 3]))
             } else {
                 AxisGridLine(stroke: .init(lineWidth: 0, dash: [2, 3]))
@@ -796,7 +844,9 @@ struct StaticYAxisChart: View {
                 if units == .mmolL {
                     AxisTick(length: 7, stroke: .init(lineWidth: 7)).foregroundStyle(Color.clear)
                 }
-                AxisValueLabel().font(.footnote).foregroundStyle(Color.primary)
+                AxisValueLabel()
+                    .font(OffworldTheme.axisLabelFont(stock: .footnote))
+                    .foregroundStyle(OffworldTheme.isEnabled ? OffworldTheme.Swatch.chrome.color.opacity(0.7) : Color.primary)
             }
         }
     }
@@ -983,6 +1033,41 @@ extension MainChartCanvas {
         .chartYAxis(.hidden)
         .chartYScale(domain: glucoseYDomain)
         .chartLegend(.hidden)
+        .chartOverlay { proxy in
+            // Off-world only: the newest reading's dot, label and pulse live outside the chart marks.
+            if OffworldTheme.isEnabled,
+               let newest = glucose.filter({ !$0.isManual }).max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }),
+               let date = newest.date, Date().timeIntervalSince(date) < 15 * 60,
+               let plotFrame = proxy.plotFrame
+            {
+                GeometryReader { geo in
+                    let frame = geo[plotFrame]
+                    let value = state.units == .mgdL ? Decimal(newest.glucose) : Decimal(newest.glucose).asMmolL
+                    if let point = proxy.position(for: (date, value)) {
+                        OffworldNewestReading(
+                            position: CGPoint(x: frame.minX + point.x, y: frame.minY + point.y),
+                            plotWidth: frame.maxX,
+                            color: OffworldTheme.homeGlucoseColor(
+                                value: Decimal(newest.glucose),
+                                low: state.lowGlucose,
+                                high: state.highGlucose,
+                                target: state.currentGlucoseTarget,
+                                scheme: state.glucoseColorScheme,
+                                inRange: .cyan
+                            ),
+                            label: state.units == .mgdL ? "\(newest.glucose)" : Decimal(newest.glucose).formattedAsMmolL,
+                            showsAccentRing: OffworldTheme.band(
+                                value: Decimal(newest.glucose),
+                                low: state.lowGlucose,
+                                high: state.highGlucose
+                            ) == .inRange
+                        )
+                    }
+                }
+                // Decoration only: never takes a touch, so press-and-hold inspection, panning and zoom are untouched.
+                .allowsHitTesting(false)
+            }
+        }
         .chartForegroundStyleScale([
             "iob": Color.insulin,
             "uam": Color.uam,

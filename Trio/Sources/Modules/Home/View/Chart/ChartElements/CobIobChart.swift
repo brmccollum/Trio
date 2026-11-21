@@ -61,6 +61,24 @@ extension MainChartCanvas {
             return true
         }
 
+        let cobColor = OffworldTheme.resolve(Color.orange, themed: .carbGold)
+        let iobColor = OffworldTheme.resolve(Color.darkerBlue, themed: .violet)
+        // Off-world: the fills run gold to its warmer edge (COB) and violet to pinker violet (IOB).
+        let cobArea = OffworldTheme.isEnabled
+            ? AnyShapeStyle(LinearGradient(
+                colors: [cobColor, OffworldTheme.Swatch.carbEdge.color],
+                startPoint: .top,
+                endPoint: .bottom
+            ))
+            : AnyShapeStyle(cobColor)
+        let iobArea = OffworldTheme.isEnabled
+            ? AnyShapeStyle(LinearGradient(
+                colors: [OffworldTheme.Swatch.violetGlow.color, iobColor],
+                startPoint: .top,
+                endPoint: .bottom
+            ))
+            : AnyShapeStyle(iobColor)
+
         return ForEach(filteredDeterminations) { item in
 
             // MARK: - COB line and area mark
@@ -71,14 +89,14 @@ extension MainChartCanvas {
             // Fixed styles + explicit series identity replace foregroundStyle(by:)/
             // position(by:), which dragged every mark through scale resolution.
             LineMark(x: .value("Time", date), y: .value("Value", amountCOB), series: .value("Series", "COB"))
-                .foregroundStyle(Color.orange)
+                .foregroundStyle(cobColor)
             AreaMark(
                 x: .value("Time", date),
                 y: .value("Value", amountCOB),
                 series: .value("Series", "COB"),
                 stacking: .unstacked
             )
-            .foregroundStyle(Color.orange)
+            .foregroundStyle(cobArea)
             .opacity(0.2)
 
             // MARK: - IOB line and area mark
@@ -92,10 +110,20 @@ extension MainChartCanvas {
                 series: .value("Series", "IOB"),
                 stacking: .unstacked
             )
-            .foregroundStyle(Color.darkerBlue)
+            .foregroundStyle(iobArea)
             .opacity(0.2)
             LineMark(x: .value("Time", date), y: .value("Amount", amountIOB), series: .value("Series", "IOB"))
-                .foregroundStyle(Color.darkerBlue)
+                .foregroundStyle(iobColor)
+
+            if OffworldTheme.isEnabled {
+                // soft halo under each line
+                LineMark(x: .value("Time", date), y: .value("Value", amountCOB), series: .value("Series", "COB-glow"))
+                    .foregroundStyle(cobColor.opacity(0.16))
+                    .lineStyle(StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                LineMark(x: .value("Time", date), y: .value("Amount", amountIOB), series: .value("Series", "IOB-glow"))
+                    .foregroundStyle(iobColor.opacity(0.2))
+                    .lineStyle(StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+            }
         }
     }
 
@@ -123,6 +151,8 @@ extension MainChartCanvas {
             anchorValue: state.enactedAndNonEnactedDeterminations.first?.iob?.doubleValue
         )
 
+        let iobColor = OffworldTheme.resolve(Color.darkerBlue, themed: .violet)
+
         return ForEach(points) { point in
             let amount = MainChartHelper.scaledIobAmount(point.value)
 
@@ -132,14 +162,14 @@ extension MainChartCanvas {
                 series: .value("Series", "IOBProjection"),
                 stacking: .unstacked
             )
-            .foregroundStyle(Color.darkerBlue)
+            .foregroundStyle(iobColor)
             .opacity(0.1)
             LineMark(
                 x: .value("Time", point.date),
                 y: .value("Amount", amount),
                 series: .value("Series", "IOBProjection")
             )
-            .foregroundStyle(Color.darkerBlue.opacity(0.8))
+            .foregroundStyle(iobColor.opacity(0.8))
             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
         }
     }
@@ -159,14 +189,14 @@ extension MainChartCanvas {
                 series: .value("Series", "COBProjection"),
                 stacking: .unstacked
             )
-            .foregroundStyle(Color.orange)
+            .foregroundStyle(OffworldTheme.resolve(Color.orange, themed: .carbGold))
             .opacity(0.1)
             LineMark(
                 x: .value("Time", point.date),
                 y: .value("Value", point.value),
                 series: .value("Series", "COBProjection")
             )
-            .foregroundStyle(Color.orange.opacity(0.8))
+            .foregroundStyle(OffworldTheme.resolve(Color.orange, themed: .carbGold).opacity(0.8))
             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
         }
     }

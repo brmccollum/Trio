@@ -596,7 +596,8 @@ extension Home.RootView {
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
                                 Text(tirString)
                                     .font(.title2).fontWeight(.bold).fontDesign(.rounded)
-                                    .foregroundStyle(.primary)
+                                    .offworldTabularDigits()
+                                    .foregroundStyle(OffworldTheme.statValueStyle)
                                 // chart shows 72h; make the daily scope explicit
                                 (
                                     Text("Time in Range", comment: "Stats banner subtitle").fontWeight(.semibold)
@@ -604,7 +605,7 @@ extension Home.RootView {
                                         + Text("today", comment: "Stats banner scope")
                                 )
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(OffworldTheme.statLabelStyle)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                             }
@@ -620,7 +621,7 @@ extension Home.RootView {
                                     + Text("today", comment: "Stats banner scope")
                             )
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(OffworldTheme.statLabelStyle)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
 
@@ -635,12 +636,12 @@ extension Home.RootView {
                                     + Text(" \(todayAverageString) \u{00B7} GMI \(todayGMIString)")
                             )
                             .font(.subheadline).fontWeight(.semibold)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(OffworldTheme.statValueStyle)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                             Text("Today's Average", comment: "Stats banner subtitle")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(OffworldTheme.statLabelStyle)
                         }
                     case .hidden:
                         Text("View Statistics", comment: "Stats banner hidden face")

@@ -35,7 +35,7 @@ extension History.RootView {
                                 unitsText: state.units.rawValue
                             )
                         }
-                    }.listRowBackground(Color.chart)
+                    }.listRowBackground(OffworldRowFill())
 
                     Section {
                         HStack {

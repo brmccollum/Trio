@@ -35,6 +35,9 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
     var forecastConeMax: [Double] = []
     var forecastLines: [String: [Double]] = [:] // "iob" / "cob" / "uam" / "zt" -> values
 
+    /// Optional Off-world appearance flag for the watch. Display only.
+    var offworldTheme: Bool = false
+
     static func == (lhs: WatchState, rhs: WatchState) -> Bool {
         lhs.date == rhs.date &&
             lhs.currentGlucose == rhs.currentGlucose &&
@@ -63,7 +66,8 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
             lhs.forecastStartDate == rhs.forecastStartDate &&
             lhs.forecastConeMin == rhs.forecastConeMin &&
             lhs.forecastConeMax == rhs.forecastConeMax &&
-            lhs.forecastLines == rhs.forecastLines
+            lhs.forecastLines == rhs.forecastLines &&
+            lhs.offworldTheme == rhs.offworldTheme
     }
 
     func hash(into hasher: inout Hasher) {
@@ -96,5 +100,6 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
         hasher.combine(forecastConeMin)
         hasher.combine(forecastConeMax)
         hasher.combine(forecastLines)
+        hasher.combine(offworldTheme)
     }
 }

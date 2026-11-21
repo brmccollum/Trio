@@ -95,12 +95,20 @@ struct ChartSelectionRow: View {
     }
 
     private var pointMarkColor: Color {
-        selectionMarkColor(
+        let stock = selectionMarkColor(
             for: selectedGlucose,
             highGlucose: highGlucose,
             lowGlucose: lowGlucose,
             currentGlucoseTarget: currentGlucoseTarget,
             glucoseColorScheme: glucoseColorScheme
+        )
+        // Off-world: same colours as the Home line (cyan in range, amber high, stock low).
+        return OffworldTheme.glucoseColor(
+            stock: stock,
+            band: OffworldTheme.band(value: Decimal(selectedGlucose.glucose), low: lowGlucose, high: highGlucose),
+            isStaticScheme: glucoseColorScheme == .staticColor,
+            inRange: .cyan,
+            replacesDynamicInRange: false
         )
     }
 
@@ -145,7 +153,7 @@ struct ChartSelectionRow: View {
                 .flatMap { Formatter.decimalFormatterWithTwoFractionDigits.string(from: $0) }
             item(
                 icon: "syringe.fill",
-                tint: Color.insulin,
+                tint: OffworldTheme.resolve(Color.insulin, themed: .violet),
                 value: iobString.map { Text($0) + iobUnit } ?? Self.missingValue
             )
 
@@ -154,7 +162,7 @@ struct ChartSelectionRow: View {
                 .flatMap { Formatter.integerFormatter.string(from: $0.cob as NSNumber) }
             item(
                 icon: "fork.knife",
-                tint: .loopYellow,
+                tint: OffworldTheme.resolve(Color.loopYellow, themed: .carbGold),
                 value: cobString.map { Text($0) + cobUnit } ?? Self.missingValue
             )
         }

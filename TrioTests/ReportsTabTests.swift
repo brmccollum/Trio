@@ -262,3 +262,142 @@ import Testing
         #expect(result.errorMessage != nil)
     }
 }
+
+/// Tests for the optional top-level `links` of the reports payload. Pure decoding and validation.
+@Suite("Reports tab link tests") struct ReportsTabLinkTests {
+    private func payload(_ json: String) throws -> AssistantReportsPayload {
+        try AssistantReportsStore.decode(Data(json.utf8))
+    }
+
+    @Test("A payload without links decodes with none") func decodesWithoutLinks() throws {
+        let decoded = try payload(#"{"reports": []}"#)
+        #expect(decoded.links.isEmpty)
+        #expect(decoded.openableLinks.isEmpty)
+    }
+
+    @Test("Links decode in order with title and url") func decodesLinks() throws {
+        let decoded = try payload("""
+        {"reports": [], "links": [
+          {"title": "Dashboard", "url": "https://example.com/basal"},
+          {"title": "Change log", "url": "http://example.org/log?x=1"}
+        ]}
+        """)
+        #expect(decoded.links.count == 2)
+        #expect(decoded.openableLinks.map(\.displayTitle) == ["Dashboard", "Change log"])
+        #expect(decoded.openableLinks.first?.destination == URL(string: "https://example.com/basal"))
+    }
+
+    @Test("Malformed links are tolerated, not fatal") func lenientLinks() throws {
+        let decoded = try payload("""
+        {"reports": [{"id": "a", "title": "Kept"}], "links": [
+          "not an object", 7, null,
+          {"title": 12, "url": "https://example.com/a"},
+          {"url": "https://example.com/untitled"},
+          {"title": "No address"}
+        ]}
+        """)
+        #expect(decoded.reports.count == 1)
+        #expect(decoded.openableLinks.map(\.displayTitle) == ["12", "example.com"])
+
+        let wrongType = try payload(#"{"reports": [], "links": "nope"}"#)
+        #expect(wrongType.links.isEmpty)
+    }
+
+    @Test("Only http and https addresses are openable", arguments: [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "tel:5551234",
+        "trio://device-select-resp",
+        "ftp://example.com/x",
+        "data:text/html,hi",
+        "example.com/no-scheme",
+        "https://",
+        ""
+    ]) func rejectsOtherSchemes(url: String) {
+        let link = AssistantReportLink(title: "Bad", url: url)
+        #expect(link.destination == nil)
+        #expect(AssistantReportsPayload(links: [link]).openableLinks.isEmpty)
+    }
+
+    @Test("http and https are accepted, case and whitespace aside") func acceptsWebSchemes() {
+        #expect(AssistantReportLink(title: "a", url: " HTTPS://Example.com/x ").destination != nil)
+        #expect(AssistantReportLink(title: "b", url: "http://example.com").destination != nil)
+    }
+
+    @Test("Links are cached with the rest of the snapshot") func linksAreCached() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reports-link-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = "https://reports.example/reports.json"
+        let json = #"{"reports": [], "links": [{"title": "Dashboard", "url": "https://example.com/basal"}]}"#
+        let store = AssistantReportsStore(
+            cacheFileURL: directory.appendingPathComponent("cache.json"),
+            loader: { _ in Data(json.utf8) }
+        )
+
+        let fresh = await store.refresh(from: source)
+        #expect(fresh.isFresh)
+        let cached = store.loadCached(for: source)
+        #expect(cached == fresh.snapshot)
+        #expect(cached?.payload.openableLinks.first?.displayTitle == "Dashboard")
+    }
+}
+
+/// Precedence between the source typed on the Reports tab and the build-time default.
+@Suite("Reports tab default source tests") struct ReportsTabDefaultSourceTests {
+    private let bundled = "https://default.example/reports.json"
+
+    @Test("A typed source wins over the build-time default") func typedWins() {
+        let source = AssistantReportsStore.effectiveSource(stored: " https://typed.example/r.json ", bundledDefault: bundled)
+        #expect(source == "https://typed.example/r.json")
+    }
+
+    @Test("Unset or blank falls back to the build-time default", arguments: ["", "   ", "\n"]) func fallsBack(stored: String) {
+        #expect(AssistantReportsStore.effectiveSource(stored: stored, bundledDefault: " \(bundled) ") == bundled)
+    }
+
+    @Test("No default and nothing typed means no source", arguments: [
+        "",
+        "  ",
+        "$(BRYAN_REPORTS_SOURCE_URL)"
+    ]) func noSource(bundledDefault: String) {
+        #expect(AssistantReportsStore.effectiveSource(stored: "", bundledDefault: bundledDefault) == "")
+    }
+}
+
+/// The build-time "Open Basal" link and the local-network hint.
+@Suite("Reports tab link validation tests") struct ReportsTabURLValidationTests {
+    @Test("Only https is accepted for the Basal link", arguments: [
+        "http://example.com/basal",
+        "javascript:alert(1)",
+        "example.com/basal",
+        "https://",
+        "$(BRYAN_BASAL_URL)",
+        ""
+    ]) func rejectsNonHTTPS(text: String) {
+        #expect(AssistantReportsStore.validatedHTTPSURL(from: text) == nil)
+    }
+
+    @Test("A plain https address is accepted") func acceptsHTTPS() {
+        #expect(AssistantReportsStore.validatedHTTPSURL(from: " https://example.com/basal ")?.host == "example.com")
+    }
+
+    @Test("Local network sources are recognised", arguments: [
+        "http://my-mac.local:8080/reports.json",
+        "http://192.168.1.20/r.json",
+        "http://10.0.0.5:9000/r.json",
+        "http://172.20.1.1/r.json",
+        "http://localhost:8765/r.json"
+    ]) func local(source: String) {
+        #expect(AssistantReportsStore.isLocalNetworkSource(source))
+    }
+
+    @Test("Internet sources are not", arguments: [
+        "https://example.com/reports.json",
+        "http://172.32.0.1/r.json",
+        "https://8.8.8.8/r.json",
+        "not a url"
+    ]) func notLocal(source: String) {
+        #expect(!AssistantReportsStore.isLocalNetworkSource(source))
+    }
+}

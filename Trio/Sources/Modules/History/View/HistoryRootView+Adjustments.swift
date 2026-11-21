@@ -19,7 +19,7 @@ extension History.RootView {
                 )
             }
         }
-        .listRowBackground(Color.chart)
+        .listRowBackground(OffworldRowFill())
     }
 
     fileprivate var combinedAdjustments: [AdjustmentItem] {

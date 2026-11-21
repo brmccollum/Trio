@@ -122,6 +122,16 @@ struct GlucoseTrendView: View {
                     .frame(width: circleSize, height: circleSize)
                     .background(Circle().fill(Color.bgDarkBlue))
                     .shadow(color: statusColor(for: state.lastLoopTime), radius: shadowRadius)
+                    .overlay {
+                        // Off-world: brass hairline just outside the loop-status ring. Takes no space.
+                        if state.offworldTheme {
+                            Circle()
+                                .stroke(WatchOffworldTheme.brass, lineWidth: 1)
+                                .padding(-(lineWidth / 2 + 5))
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
 
                 TrendShape(
                     isWatchStateDated: isWatchStateDated,
@@ -133,15 +143,28 @@ struct GlucoseTrendView: View {
 
                 VStack(alignment: .center) {
                     Text(isWatchStateDated ? "--" : state.currentGlucose)
+                        .watchOffworldDisplayFont(
+                            currentGlucoseFontSize == .title ? .title : .title2,
+                            active: state.offworldTheme && !isWatchStateDated
+                        )
                         .fontWeight(.semibold)
                         .font(currentGlucoseFontSize)
                         .foregroundStyle(isWatchStateDated ? Color.secondary : state.currentGlucoseColorString.toColor())
+                        .watchOffworldGlow(
+                            state.currentGlucoseColorString.toColor(),
+                            active: state.offworldTheme && !isWatchStateDated
+                        )
 
                     if let delta = state.delta {
                         Text(isWatchStateDated ? "--" : delta)
                             .fontWeight(.semibold)
                             .font(.system(.caption))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(
+                                state.offworldTheme && !isWatchStateDated
+                                    ? AnyShapeStyle(WatchOffworldTheme.cyan)
+                                    : AnyShapeStyle(.secondary)
+                            )
+                            .watchOffworldDigits(active: state.offworldTheme)
                     }
                 }
             }

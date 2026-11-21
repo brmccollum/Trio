@@ -25,24 +25,53 @@ struct InsulinView: ChartContent {
                     .bolusOffset(units: units)
                 let size = (MainChartHelper.Config.bolusSize + CGFloat(truncating: amount) * MainChartHelper.Config.bolusScale)
 
-                PointMark(
-                    x: .value("Time", bolusDate, unit: .second),
-                    y: .value("Value", yPosition)
-                )
-                .symbol {
-                    Image(systemName: "arrowtriangle.down.fill").font(.system(size: size)).foregroundStyle(Color.insulin)
-                }
+                if OffworldTheme.isEnabled {
+                    // Off-world: violet glyph with a silver rim; manual boluses are drawn larger than SMBs.
+                    let isSMB = insulin.bolus?.isSMB ?? false
+                    PointMark(
+                        x: .value("Time", bolusDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbol {
+                        OffworldChartGlyph(kind: isSMB ? .smb : .manualBolus, stockSize: size)
+                    }
 
-                PointMark(
-                    x: .value("Time", bolusDate, unit: .second),
-                    y: .value("Value", yPosition)
-                )
-                .symbolSize(0)
-                .annotation(position: .top) {
-                    if amount as Decimal >= bolusDisplayThreshold.rawValue {
-                        Text(Formatter.bolusFormatter.string(from: amount) ?? "")
-                            .font(.caption2)
-                            .foregroundStyle(Color.primary)
+                    PointMark(
+                        x: .value("Time", bolusDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbolSize(0)
+                    .annotation(position: .top, spacing: 0) {
+                        if amount as Decimal >= bolusDisplayThreshold.rawValue {
+                            Text(Formatter.bolusFormatter.string(from: amount) ?? "")
+                                .font(OffworldTheme.chartAmountFont)
+                                .foregroundStyle(OffworldTheme.Swatch.ink.color)
+                                .padding(
+                                    .bottom,
+                                    OffworldChartGlyph.labelClearance(kind: isSMB ? .smb : .manualBolus, stockSize: size)
+                                )
+                        }
+                    }
+                } else {
+                    PointMark(
+                        x: .value("Time", bolusDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbol {
+                        Image(systemName: "arrowtriangle.down.fill").font(.system(size: size)).foregroundStyle(Color.insulin)
+                    }
+
+                    PointMark(
+                        x: .value("Time", bolusDate, unit: .second),
+                        y: .value("Value", yPosition)
+                    )
+                    .symbolSize(0)
+                    .annotation(position: .top) {
+                        if amount as Decimal >= bolusDisplayThreshold.rawValue {
+                            Text(Formatter.bolusFormatter.string(from: amount) ?? "")
+                                .font(.caption2)
+                                .foregroundStyle(Color.primary)
+                        }
                     }
                 }
             }

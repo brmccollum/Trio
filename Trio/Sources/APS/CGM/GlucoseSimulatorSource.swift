@@ -127,6 +127,12 @@ final class GlucoseSimulatorSource: GlucoseSource {
     /// - Parameter timer: Optional dispatch timer (not used in this implementation)
     /// - Returns: A publisher that emits an array of BloodGlucose objects
     func fetch(_: DispatchTimer?) -> AnyPublisher<[BloodGlucose], Never> {
+        #if DEBUG && targetEnvironment(simulator)
+            // Screenshot aid, compiled into simulator debug builds only: replay a readings file once.
+            if let replay = SimulatorTraceReplay.next() {
+                return Just(replay).eraseToAnyPublisher()
+            }
+        #endif
         guard canGenerateNewValues else {
             return Just([]).eraseToAnyPublisher()
         }
@@ -518,3 +524,210 @@ class OscillatingGenerator: BloodGlucoseGenerator {
         }
     }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+    /// Simulator-only, debug-only: replays a JSON array of `{"t": epoch ms, "sgv": mg/dL}` given by the
+    /// launch argument `-SimulatorTraceReplayFile <path>`, shifted so the newest reading is "now".
+    /// Never compiled into a device or release build.
+    enum SimulatorTraceReplay {
+        private static var delivered = false
+
+        /// The file's readings the first time; an empty batch afterwards, so the generator stays silent.
+        /// nil when no replay file was given.
+        static func next() -> [BloodGlucose]? {
+            guard let path = UserDefaults.standard.string(forKey: "SimulatorTraceReplayFile"), !path.isEmpty else {
+                return nil
+            }
+            guard !delivered else { return [] }
+            delivered = true
+            guard let data = FileManager.default.contents(atPath: path),
+                  let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+            else { return [] }
+            var readings: [(Double, Int)] = rows.compactMap { row in
+                guard let t = (row["t"] as? NSNumber)?.doubleValue, let sgv = (row["sgv"] as? NSNumber)?.intValue
+                else { return nil }
+                return (t / 1000, sgv)
+            }
+            guard let newest = readings.map(\.0).max() else { return [] }
+            if UserDefaults.standard.string(forKey: "SimulatorTraceReplayMode") == "stress" {
+                // In memory only: stretch the values about 125 so the trace crosses both thresholds,
+                // and drop 25 minutes of readings to make a gap. For checking colours and the gap rule.
+                readings = readings.compactMap { time, sgv in
+                    let age = newest - time
+                    if age > 60 * 60, age < 85 * 60 { return nil }
+                    return (time, min(max(Int(125 + Double(sgv - 125) * 1.9), 45), 320))
+                }
+            }
+            let shift = Date().timeIntervalSince1970 - 20 - newest
+            let startup = Date()
+            if let newestValue = readings.max(by: { $0.0 < $1.0 })?.1 {
+                SimulatorTreatmentSeed.seedIfRequested(newestGlucose: newestValue)
+            }
+            return readings.sorted { $0.0 < $1.0 }.map { time, sgv in
+                let date = Date(timeIntervalSince1970: time + shift)
+                return BloodGlucose(
+                    id: UUID().uuidString,
+                    sgv: sgv,
+                    direction: .flat,
+                    date: Decimal(Int(date.timeIntervalSince1970) * 1000),
+                    dateString: date,
+                    unfiltered: Decimal(sgv),
+                    filtered: nil,
+                    noise: nil,
+                    glucose: sgv,
+                    type: nil,
+                    activationDate: startup,
+                    sessionStartDate: startup,
+                    transmitterID: "SIMULATOR"
+                )
+            }
+        }
+    }
+#endif
+
+#if DEBUG && targetEnvironment(simulator)
+    /// Simulator-only, debug-only screenshot aid: with the launch argument
+    /// `-SimulatorTraceReplaySeedTreatments YES` (alongside a replay file) it writes invented boluses,
+    /// SMBs, carbs, fat-protein equivalents, temp basals and determinations (the newest with forecast
+    /// curves) into the simulator's own Core Data store, once. Everything is marked as already uploaded.
+    /// Never compiled into a device or release build.
+    enum SimulatorTreatmentSeed {
+        private static let marker = "SIMSEED-"
+
+        static func seedIfRequested(newestGlucose: Int) {
+            guard UserDefaults.standard.bool(forKey: "SimulatorTraceReplaySeedTreatments") else { return }
+            let context = CoreDataStack.shared.newTaskContext()
+            context.name = "SimulatorTreatmentSeed"
+            context.perform {
+                let existing = NSFetchRequest<PumpEventStored>(entityName: "PumpEventStored")
+                existing.predicate = NSPredicate(format: "id BEGINSWITH %@", marker)
+                guard ((try? context.count(for: existing)) ?? 0) == 0 else { return }
+
+                let now = Date()
+                func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
+
+                // (minutes ago, units, isSMB)
+                let boluses: [(Double, Double, Bool)] = [
+                    (300, 2.5, false), (150, 1.25, false), (55, 3.0, false),
+                    (285, 0.3, true), (270, 0.2, true), (140, 0.15, true), (120, 0.4, true),
+                    (100, 0.1, true), (45, 0.25, true), (30, 0.3, true), (15, 0.1, true)
+                ]
+                // (minutes ago, grams)
+                let carbs: [(Double, Double)] = [(300, 30), (150, 7), (55, 45)]
+                // (minutes ago, U/h); 30 minutes each. 180...150 is left open on purpose.
+                let temps: [(Double, Double)] = [
+                    (330, 1.2), (300, 0.4), (270, 1.6), (240, 0), (210, 0), (150, 1.8),
+                    (120, 0.6), (90, 0), (60, 1.4), (30, 0.8)
+                ]
+
+                func pumpEvent(_ date: Date, type: PumpEventStored.EventType) -> PumpEventStored {
+                    let event = PumpEventStored(context: context)
+                    event.id = marker + UUID().uuidString
+                    event.syncIdentifier = marker + UUID().uuidString
+                    event.timestamp = date
+                    event.type = type.rawValue
+                    event.isUploadedToNS = true
+                    event.isUploadedToHealth = true
+                    event.isUploadedToTidepool = true
+                    return event
+                }
+
+                for (minutes, units, isSMB) in boluses {
+                    let bolus = BolusStored(context: context)
+                    bolus.amount = NSDecimalNumber(value: units)
+                    bolus.isSMB = isSMB
+                    bolus.isExternal = false
+                    bolus.pumpEvent = pumpEvent(ago(minutes), type: isSMB ? .smb : .bolus)
+                }
+
+                for (minutes, rate) in temps {
+                    let temp = TempBasalStored(context: context)
+                    temp.rate = NSDecimalNumber(value: rate)
+                    temp.duration = 30
+                    temp.tempType = "absolute"
+                    temp.isScheduledBasal = false
+                    temp.pumpEvent = pumpEvent(ago(minutes), type: .tempBasal)
+                }
+
+                func carbEntry(_ date: Date, grams: Double, isFPU: Bool, fpuID: UUID?) {
+                    let entry = CarbEntryStored(context: context)
+                    entry.id = UUID()
+                    entry.date = date
+                    entry.carbs = grams
+                    entry.isFPU = isFPU
+                    entry.fpuID = fpuID
+                    entry.note = "simulator seed"
+                    entry.isUploadedToNS = true
+                    entry.isUploadedToHealth = true
+                    entry.isUploadedToTidepool = true
+                }
+                for (minutes, grams) in carbs {
+                    carbEntry(ago(minutes), grams: grams, isFPU: false, fpuID: nil)
+                }
+                // fat-protein equivalents of the 150-minutes-ago meal: 3 g every 30 minutes, two still ahead
+                let fpuID = UUID()
+                for step in 0 ..< 7 {
+                    carbEntry(ago(120 - Double(step) * 30), grams: 3, isFPU: true, fpuID: fpuID)
+                }
+
+                // One determination every 5 minutes with roughly decaying IOB and COB, for the lower pane.
+                func iob(at minutes: Double) -> Double {
+                    boluses.reduce(0) { sum, bolus in
+                        let age = bolus.0 - minutes
+                        return age < 0 ? sum : sum + bolus.1 * max(0, 1 - age / 300)
+                    }
+                }
+                func cob(at minutes: Double) -> Double {
+                    carbs.reduce(0) { sum, carb in
+                        let age = carb.0 - minutes
+                        return age < 0 ? sum : sum + carb.1 * max(0, 1 - age / 180)
+                    }
+                }
+                var newest: OrefDetermination?
+                for step in stride(from: 72, through: 0, by: -1) {
+                    let minutes = Double(step) * 5
+                    let determination = OrefDetermination(context: context)
+                    determination.id = UUID()
+                    let date = step == 0 ? now.addingTimeInterval(-10) : ago(minutes)
+                    determination.deliverAt = date
+                    determination.timestamp = date
+                    determination.enacted = step == 0
+                    determination.received = step == 0
+                    determination.isUploadedToNS = true
+                    determination.iob = NSDecimalNumber(value: (iob(at: minutes) * 100).rounded() / 100)
+                    determination.cob = Int16(cob(at: minutes).rounded())
+                    determination.glucose = NSDecimalNumber(value: newestGlucose)
+                    determination.eventualBG = NSDecimalNumber(value: newestGlucose - 20)
+                    determination.reason = "simulator seed"
+                    if step == 0 { newest = determination }
+                }
+
+                // Forecast curves on the newest determination, 5-minute steps for 3 hours.
+                if let newest {
+                    let start = Double(newestGlucose)
+                    let curves: [(String, (Double) -> Double)] = [
+                        ("iob", { t in start - 35 * (1 - exp(-t / 50)) }),
+                        ("zt", { t in start - 60 * (1 - exp(-t / 45)) + 20 * (1 - exp(-t / 140)) }),
+                        ("cob", { t in start + 55 * (1 - exp(-t / 35)) - 40 * (1 - exp(-t / 150)) }),
+                        ("uam", { t in start + 30 * (1 - exp(-t / 20)) - 45 * (1 - exp(-t / 90)) })
+                    ]
+                    for (type, curve) in curves {
+                        let forecast = Forecast(context: context)
+                        forecast.id = UUID()
+                        forecast.date = newest.deliverAt
+                        forecast.type = type
+                        forecast.orefDetermination = newest
+                        for index in 0 ... 36 {
+                            let value = ForecastValue(context: context)
+                            value.index = Int32(index)
+                            value.value = Int32(min(max(curve(Double(index) * 5).rounded(), 39), 400))
+                            value.forecast = forecast
+                        }
+                    }
+                }
+
+                try? context.save()
+            }
+        }
+    }
+#endif

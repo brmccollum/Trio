@@ -19,31 +19,31 @@ struct FeatureSettingsView: BaseView {
     var body: some View {
         Form {
             Section(
-                header: Text("Trio Features"),
+                header: Text("Trio Features").offworldSectionHeader(),
                 content: {
                     Text("Treatments").navigationLink(to: .treatmentsSettings, from: self)
                     Text("Shortcuts").navigationLink(to: .shortcutsConfig, from: self)
                     Text("Remote Control").navigationLink(to: .remoteControlConfig, from: self)
                 }
             )
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
 
             Section(
-                header: Text("Trio Personalization"),
+                header: Text("Trio Personalization").offworldSectionHeader(),
                 content: {
                     Text("User Interface").navigationLink(to: .userInterfaceSettings, from: self)
                     Text("App Icons").navigationLink(to: .iconConfig, from: self)
                 }
             )
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
 
             Section(
-                header: Text("Anonymized Data Sharing"),
+                header: Text("Anonymized Data Sharing").offworldSectionHeader(),
                 content: {
                     Text("App Diagnostics").navigationLink(to: .appDiagnostics, from: self)
                 }
             )
-            .listRowBackground(Color.chart)
+            .listRowBackground(OffworldRowFill())
         }
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))
