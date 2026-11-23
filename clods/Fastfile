@@ -1,0 +1,77 @@
+# Clods: build the phone and watch app and send it to TestFlight.
+# Uses the same secrets and the same Match-Secrets repository as the Trio browser build.
+default_platform(:ios)
+
+TEAMID = ENV["TEAMID"]
+GH_PAT = ENV["GH_PAT"]
+OWNER = ENV["GITHUB_REPOSITORY_OWNER"]
+BUNDLE_ID = "dev.clods.#{TEAMID}"
+IDS = [BUNDLE_ID, "#{BUNDLE_ID}.nse", "#{BUNDLE_ID}.watchkitapp"]
+PROJECT = File.expand_path("Clods.xcodeproj", __dir__)
+
+platform :ios do
+  desc "Build Clods and upload it to TestFlight"
+  lane :clods do
+    setup_ci if ENV["CI"]
+    ENV["MATCH_READONLY"] = false.to_s
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV["FASTLANE_KEY_ID"],
+      issuer_id: ENV["FASTLANE_ISSUER_ID"],
+      key_content: ENV["FASTLANE_KEY"]
+    )
+
+    # Identifiers (created on first run, left alone afterwards)
+    push = Spaceship::ConnectAPI::BundleIdCapability::Type::PUSH_NOTIFICATIONS
+    { BUNDLE_ID => ["Clods", [push]],
+      "#{BUNDLE_ID}.nse" => ["Clods Notifications", []],
+      "#{BUNDLE_ID}.watchkitapp" => ["Clods Watch", []] }.each do |identifier, (name, caps)|
+      bundle = Spaceship::ConnectAPI::BundleId.find(identifier) ||
+               Spaceship::ConnectAPI::BundleId.create(name: name, identifier: identifier, platform: "IOS")
+      have = bundle.get_capabilities.map(&:capability_type)
+      caps.reject { |c| have.include?(c) }.each { |c| bundle.create_capability(c) }
+    end
+
+    match(
+      type: "appstore",
+      storage_mode: "git",
+      git_url: "https://github.com/#{OWNER}/Match-Secrets.git",
+      git_basic_authorization: Base64.strict_encode64("#{OWNER}:#{GH_PAT}"),
+      app_identifier: IDS
+    )
+    mapping = Actions.lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING]
+
+    sh("cd '#{__dir__}' && ./make_assets.sh && xcodegen generate")
+
+    { "Clods" => BUNDLE_ID, "ClodsNSE" => "#{BUNDLE_ID}.nse", "ClodsWatch" => "#{BUNDLE_ID}.watchkitapp" }.each do |target, identifier|
+      update_code_signing_settings(
+        use_automatic_signing: false,
+        path: PROJECT,
+        team_id: TEAMID,
+        profile_name: mapping[identifier],
+        code_sign_identity: "iPhone Distribution",
+        targets: [target]
+      )
+    end
+
+    build_number = latest_testflight_build_number(app_identifier: BUNDLE_ID, api_key: api_key, initial_build_number: 0) + 1
+
+    gym(
+      project: PROJECT,
+      scheme: "Clods",
+      configuration: "Release",
+      export_method: "app-store",
+      output_name: "Clods.ipa",
+      destination: "generic/platform=iOS",
+      xcargs: "CURRENT_PROJECT_VERSION=#{build_number}",
+      buildlog_path: "buildlog"
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: "Clods.ipa",
+      skip_submission: true,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
