@@ -1,0 +1,149 @@
+name: 4b. Build Trio (Intel runner)
+run-name: Build Trio on Intel (${{ github.ref_name }})
+
+# Same build steps as "4. Build Trio", on GitHub's Intel Mac runners, for days when the Apple-silicon
+# runners have no capacity (Nov 23: a build sat queued for two hours). No fork sync, no certificate job:
+# run "4. Build Trio" normally when runners are available. Starts when this file changes on the branch.
+on:
+  push:
+    branches: [bryan-readonly-reporting]
+    paths:
+      - ".github/workflows/build_trio_intel.yml"
+
+# Run counter: 1
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-15-intel
+    permissions:
+      contents: write
+    steps:
+      - name: Select Xcode version
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select --switch "$XCODE/Contents/Developer"
+      
+      - name: Checkout Repo for building
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GH_PAT }}
+          submodules: recursive
+          ref: ${{ github.ref_name }}
+
+      # Customize Trio: Use patches or download and apply patches from GitHub
+      - name: Customize Trio
+        run: |
+
+          # Trio workspace patches
+          # -applies any patches located in the Trio/patches/ directory
+          if $(ls ./patches/* &> /dev/null); then
+          git apply ./patches/* --allow-empty -v --whitespace=fix
+          fi
+
+          # Download and apply Trio patches from GitHub:
+          # Template for customizing Trio code (as opposed to submodule code)
+          # Remove the "#" sign from the beginning of the line below to activate
+          #   and then replace the alphanumeric string with your SHA, this SHA is NOT valid
+          #curl https://github.com/nightscout/Trio/commit/d206432b024279ef710df462b20bd464cd9682d4.patch | git apply -v --whitespace=fix
+
+          # Download and apply Submodule patches from GitHub:
+          # Template for customizing submodules (you must edit the submodule name)
+          # This example is for G7SensorKit showing you can apply multiple commits, in the proper order
+          # Remove the "#" sign from the beginning of the lines below to activate
+          # This example applies 3 commits from the scan-fix folder; valid only when these are not already in Trio
+          #curl https://github.com/loopandlearn/G7SensorKit/commit/ba44beb3d1491c453f4f438443c3f8ba29146ab3.patch | git apply --directory=G7SensorKit -v --whitespace=fix
+          #curl https://github.com/loopandlearn/G7SensorKit/commit/d86ac8e9cd523d1267587dd70c96597125eef7ab.patch | git apply --directory=G7SensorKit -v --whitespace=fix
+          #curl https://github.com/loopandlearn/G7SensorKit/commit/205054e7537723c2aec58d807634b4853f687244.patch | git apply --directory=G7SensorKit -v --whitespace=fix
+
+          # Add patches for additional customization by following the templates above,
+          # and make sure to specify the submodule by setting "--directory=(submodule_name)".
+          # Several patches may be added per submodule.
+          # Adding comments (#) is strongly recommended to easily tell the individual patches apart.
+
+      # Optional: silence the startup warning shown on builds made from a branch other
+      # than main. Off unless you deliberately set the repository variable
+      # DEV_BRANCH_WARNING_DISABLED to true (Settings > Secrets and variables > Actions
+      # > Variables). Intended for forks and redistributions that always build from
+      # their own branch - if you are testing dev, leave this alone and keep the warning.
+      - name: Configure Dev Branch Warning
+        if: vars.DEV_BRANCH_WARNING_DISABLED == 'true'
+        run: |
+          # ConfigOverride.xcconfig is gitignored and is included by Config.xcconfig,
+          # so writing it here feeds the flag into the Release build without touching
+          # any tracked file.
+          echo 'SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEV_BRANCH_WARNING_DISABLED' >> ConfigOverride.xcconfig
+          echo "::warning::Development branch warning disabled for this build."
+
+      # Patch Fastlane Match to not print tables
+      - name: Patch Match Tables
+        run: |
+          TABLE_PRINTER_PATH=$(ruby -e 'puts Gem::Specification.find_by_name("fastlane").gem_dir')/match/lib/match/table_printer.rb
+          if [ -f "$TABLE_PRINTER_PATH" ]; then
+            sed -i "" "/puts(Terminal::Table.new(params))/d" "$TABLE_PRINTER_PATH"
+          else
+            echo "table_printer.rb not found"
+            exit 1
+          fi
+
+      # Install project dependencies
+      - name: Install Project Dependencies
+        run: bundle install
+
+      # Sync the GitHub runner clock with the Windows time server (workaround as suggested in https://github.com/actions/runner/issues/2996)
+      - name: Sync clock
+        run: sudo sntp -sS time.windows.com
+
+      # Optional, private to this fork: bundle a recommendations snapshot for the display-only
+      # "Baysyl recommends" screen. Does nothing when the secret is not set. The content is never printed.
+      # The Xcode build phase "Copy Baysyl Recs (optional)" copies the file into the app when it exists.
+      - name: Write BaysylRecs.json (optional)
+        env:
+          BRYAN_BAYSYL_RECS: ${{ secrets.BRYAN_BAYSYL_RECS }}
+        run: |
+          if [ -n "$BRYAN_BAYSYL_RECS" ]; then
+            printf '%s' "$BRYAN_BAYSYL_RECS" > Trio/Resources/BaysylRecs.json
+            echo "BaysylRecs.json written ($(wc -c < Trio/Resources/BaysylRecs.json | tr -d ' ') bytes)."
+          else
+            echo "BRYAN_BAYSYL_RECS is not set; no recommendations bundled."
+          fi
+
+      # Build signed Trio IPA file
+      - name: Fastlane Build & Archive
+        run: bundle exec fastlane build_trio
+        env:
+          BRYAN_BASAL_URL: ${{ secrets.BRYAN_BASAL_URL }}
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+      # Upload to TestFlight
+      - name: Fastlane upload to TestFlight
+        run: bundle exec fastlane release
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+      # Personal build: no downloadable copy of the app is kept (it carries private bundled values).
+      # Print yes/no checks only; never print the values themselves.
+      - name: Check bundled values (yes/no only)
+        if: always()
+        run: |
+          IPA=$(ls artifacts/*.ipa Trio.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then echo "ipa: not found"; exit 0; fi
+          rm -rf ipacheck && mkdir ipacheck && unzip -q "$IPA" -d ipacheck
+          APP=$(ls -d ipacheck/Payload/*.app | head -1)
+          if [ -f "$APP/BaysylRecs.json" ]; then echo "recommendations bundled: yes ($(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1])).get('recs',[])))" "$APP/BaysylRecs.json" 2>/dev/null || echo '?') items)"; else echo "recommendations bundled: no"; fi
+          if /usr/libexec/PlistBuddy -c "Print :BryanBasalURL" "$APP/Info.plist" 2>/dev/null | grep -q "^https"; then echo "link bundled: yes"; else echo "link bundled: no"; fi
+          if ls "$APP/PlugIns" 2>/dev/null | grep -q "appex"; then echo "widget extension: yes"; else echo "widget extension: no"; fi
+          if codesign -d --entitlements :- "$APP"/PlugIns/*.appex 2>/dev/null | grep -q "application-groups"; then echo "widget app group: yes"; else echo "widget app group: no"; fi
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist" | sed 's/^/build number: /'
+          rm -rf ipacheck
