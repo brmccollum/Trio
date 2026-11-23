@@ -308,12 +308,18 @@ jobs:
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      # Upload Build artifacts
-      - name: Upload build log, IPA and Symbol artifacts
+      # Personal build: no downloadable copy of the app is kept (it carries private bundled values).
+      # Print yes/no checks only; never print the values themselves.
+      - name: Check bundled values (yes/no only)
         if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-artifacts
-          path: |
-            artifacts
-            buildlog
+        run: |
+          IPA=$(ls artifacts/*.ipa Trio.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then echo "ipa: not found"; exit 0; fi
+          rm -rf ipacheck && mkdir ipacheck && unzip -q "$IPA" -d ipacheck
+          APP=$(ls -d ipacheck/Payload/*.app | head -1)
+          if [ -f "$APP/BaysylRecs.json" ]; then echo "recommendations bundled: yes ($(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1])).get('recs',[])))" "$APP/BaysylRecs.json" 2>/dev/null || echo '?') items)"; else echo "recommendations bundled: no"; fi
+          if /usr/libexec/PlistBuddy -c "Print :BryanBasalURL" "$APP/Info.plist" 2>/dev/null | grep -q "^https"; then echo "link bundled: yes"; else echo "link bundled: no"; fi
+          if ls "$APP/PlugIns" 2>/dev/null | grep -q "appex"; then echo "widget extension: yes"; else echo "widget extension: no"; fi
+          if codesign -d --entitlements :- "$APP"/PlugIns/*.appex 2>/dev/null | grep -q "application-groups"; then echo "widget app group: yes"; else echo "widget app group: no"; fi
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist" | sed 's/^/build number: /'
+          rm -rf ipacheck

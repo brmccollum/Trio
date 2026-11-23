@@ -199,7 +199,10 @@ platform :ios do
       Spaceship::ConnectAPI::BundleIdCapability::Type::HEALTHKIT
     ])
 
-    configure_bundle_id("Trio LiveActivity", "#{BUNDLE_ID}.LiveActivity", [])
+    # App group: the extension reads the display snapshot the app publishes for the glucose widgets.
+    configure_bundle_id("Trio LiveActivity", "#{BUNDLE_ID}.LiveActivity", [
+      Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS
+    ])
     
   end
 

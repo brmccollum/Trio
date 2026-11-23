@@ -408,6 +408,21 @@ final class LiveActivityData: ObservableObject {
         }
         let prevGlucose = data.glucoseFromPersistence?.dropFirst().first
 
+        // Display only: hand the same readings to the home-screen and lock-screen widgets.
+        // Placed before the determination guard and before `pushUpdate` checks the Live Activity
+        // setting, so widgets are fed whether or not Live Activities are on. Cannot throw or wait.
+        if let snapshot = TrioWidgetSnapshot.make(
+            readings: glucose,
+            units: settings.units,
+            low: settings.low,
+            high: settings.high,
+            iob: data.iob,
+            cob: data.determination?.cob,
+            offworld: OffworldTheme.isEnabled
+        ) {
+            TrioWidgetSnapshotPublisher.shared.publish(snapshot)
+        }
+
         guard let determination = data.determination else {
             debug(.default, "[LiveActivityManager] pushCurrentContent: no determination available")
             return
