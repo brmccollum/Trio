@@ -37,9 +37,14 @@ jobs:
 
       - name: Build and upload to TestFlight
         working-directory: clods
-        run: chmod +x make_assets.sh && bundle exec fastlane clods
+        # fastlane only looks for its recipe inside a folder named fastlane
+        run: |
+          chmod +x make_assets.sh
+          mkdir -p fastlane && cp Fastfile fastlane/Fastfile
+          bundle exec fastlane clods
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
+          CLODS_ROOT: ${{ github.workspace }}/clods
           TEAMID: ${{ secrets.TEAMID }}
           GH_PAT: ${{ secrets.GH_PAT }}
           FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
