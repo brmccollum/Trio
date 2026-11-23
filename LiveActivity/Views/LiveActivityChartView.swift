@@ -81,9 +81,16 @@ struct LiveActivityChartView: View {
             glucoseColorScheme: context.state.glucoseColorScheme
         )
 
+        // Off-world theme (appearance only). Low keeps the stock colour.
+        let offworld = LiveActivityOffworld.isOn(state)
+        let themedHighColor = offworld && hasStaticColorScheme ? LiveActivityOffworld.amber : highColor
+        let targetStyle = offworld
+            ? AnyShapeStyle(LiveActivityOffworld.inRange.opacity(0.55))
+            : AnyShapeStyle(Color.green.gradient)
+
         Chart {
             RuleMark(y: .value("High", yAxisRuleMarkMax))
-                .foregroundStyle(highColor)
+                .foregroundStyle(themedHighColor)
                 .lineStyle(.init(lineWidth: 1, dash: [5]))
 
             RuleMark(y: .value("Low", yAxisRuleMarkMin))
@@ -91,7 +98,7 @@ struct LiveActivityChartView: View {
                 .lineStyle(.init(lineWidth: 1, dash: [5]))
 
             RuleMark(y: .value("Target", target))
-                .foregroundStyle(.green.gradient)
+                .foregroundStyle(targetStyle)
                 .lineStyle(.init(lineWidth: 1.5))
 
             if isOverrideActive {
@@ -125,7 +132,14 @@ struct LiveActivityChartView: View {
             plotContent
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .light ? Color.black.opacity(0.2) : .clear)
+                        .fill(
+                            offworld ? LiveActivityOffworld.panel :
+                                (colorScheme == .light ? Color.black.opacity(0.2) : .clear)
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(LiveActivityOffworld.brass.opacity(offworld ? 0.9 : 0), lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
@@ -133,7 +147,10 @@ struct LiveActivityChartView: View {
         .chartXAxis {
             AxisMarks(position: .automatic) { _ in
                 AxisGridLine(stroke: .init(lineWidth: 0.65, dash: [2, 3]))
-                    .foregroundStyle(Color.primary.opacity(colorScheme == .light ? 1 : 0.5))
+                    .foregroundStyle(
+                        offworld ? LiveActivityOffworld.muted.opacity(0.45) :
+                            Color.primary.opacity(colorScheme == .light ? 1 : 0.5)
+                    )
             }
         }
     }
@@ -209,7 +226,9 @@ struct LiveActivityChartView: View {
                 yStart: .value("Min", coneData[i].yMin),
                 yEnd: .value("Max", coneData[i].yMax)
             )
-            .foregroundStyle(Color.blue.opacity(0.5))
+            .foregroundStyle(
+                LiveActivityOffworld.isOn(context.state) ? LiveActivityOffworld.magenta.opacity(0.35) : Color.blue.opacity(0.5)
+            )
             .interpolationMethod(.linear)
         }
     }
@@ -272,7 +291,20 @@ struct LiveActivityChartView: View {
             .symbolSize(16)
             .shadow(color: Color.black.opacity(0.25), radius: 2, x: 0, y: 0)
 
-            pointMark.foregroundStyle(pointMarkColor)
+            // Off-world theme: same band colours as the number; low stays the stock red.
+            let themedPointColor: Color = LiveActivityOffworld.isOn(context.state)
+                ? LiveActivityOffworld.glucoseColor(
+                    band: LiveActivityOffworld.band(
+                        value: item.value,
+                        low: context.state.lowGlucose,
+                        high: context.state.highGlucose
+                    ),
+                    isStaticScheme: hasStaticColorScheme,
+                    stock: pointMarkColor
+                )
+                : pointMarkColor
+
+            pointMark.foregroundStyle(themedPointColor)
         }
     }
 }

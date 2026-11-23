@@ -325,7 +325,8 @@ final class LiveActivityData: ObservableObject {
                                 forecastLines: [],
                                 forecastDisplayType: ForecastDisplayType.cone.rawValue
                             ),
-                            isInitialState: true
+                            isInitialState: true,
+                            offworld: OffworldTheme.isEnabled ? true : nil
                         ),
                     staleDate: Date.now.addingTimeInterval(60)
                 )

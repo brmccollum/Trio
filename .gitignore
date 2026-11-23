@@ -81,3 +81,6 @@ fastlane/test_output
 fastlane/FastlaneRunner
 
 ConfigOverride.xcconfig
+
+## Private build input, written at build time only (never commit)
+Trio/Resources/BaysylRecs.json

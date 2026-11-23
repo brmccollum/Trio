@@ -140,9 +140,5 @@
 	</array>
 	<key>BryanBasalURL</key>
 	<string>$(BRYAN_BASAL_URL)</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Trio reads the reports file for the Statistics Reports tab from a computer on your local network, when you have set one as the source.</string>
-	<key>BryanReportsSourceURL</key>
-	<string>$(BRYAN_REPORTS_SOURCE_URL)</string>
 </dict>
 </plist>

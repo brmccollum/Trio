@@ -10,7 +10,10 @@ struct LiveActivityBGLabelView: View {
         Text(context.state.bg)
             .fontWeight(.bold)
             .font(.title3)
-            .foregroundStyle(context.isStale ? .secondary : .primary)
+            .foregroundStyle(
+                context.isStale ? AnyShapeStyle(.secondary) :
+                    AnyShapeStyle(LiveActivityOffworld.currentGlucoseColor(context.state, stock: .primary) ?? .primary)
+            )
             .strikethrough(context.isStale, pattern: .solid, color: .red.opacity(0.6))
     }
 }

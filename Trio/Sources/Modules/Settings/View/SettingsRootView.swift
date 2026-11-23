@@ -280,20 +280,16 @@ extension Settings {
                     )
                     .listRowBackground(OffworldRowFill())
 
-                    if let basalURL = AssistantReportsStore.bundledBasalURL {
-                        // Build-time link (BRYAN_BASAL_URL); absent in normal builds.
+                    if BaysylLink.url != nil || BaysylRecsLoader.isBundled {
+                        // Private-build extras, display only: the build-time link (BRYAN_BASAL_URL) and the
+                        // optional bundled recommendations snapshot. Both absent in normal builds.
                         Section {
-                            Button {
-                                UIApplication.shared.open(basalURL)
-                            } label: {
-                                HStack {
-                                    Text(verbatim: "Open Basal")
-                                    Spacer()
-                                    Image(systemName: "arrow.up.right.square")
-                                        .accessibilityHidden(true)
-                                }
+                            NavigationLink(destination: BaysylRecsView()) {
+                                Text(verbatim: "Baysyl recommends")
                             }
-                            .accessibilityHint(Text("Opens in the browser"))
+                            if let basalURL = BaysylLink.url {
+                                BaysylOpenButton(url: basalURL)
+                            }
                         }
                         .listRowBackground(OffworldRowFill())
                     }

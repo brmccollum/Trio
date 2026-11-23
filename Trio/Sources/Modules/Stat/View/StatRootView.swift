@@ -35,7 +35,7 @@ extension Stat {
                 .padding(.horizontal)
 
                 if selectedView == .reports {
-                    // Display-only tab with its own scroll view, so pull-to-refresh applies only here.
+                    // Display-only doorway to the Baysyl page.
                     StatReportsView()
                 } else {
                     ScrollView {

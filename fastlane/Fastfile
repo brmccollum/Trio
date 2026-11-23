@@ -130,9 +130,9 @@ platform :ios do
       output_name: "Trio.ipa",
       configuration: "Release",
       destination: 'generic/platform=iOS',
-      # Optional, private to this fork: defaults for the Reports tab source and the Open Basal link.
-      # Empty when the secrets are not set, which leaves both features unconfigured.
-      xcargs: "BRYAN_REPORTS_SOURCE_URL=#{Shellwords.escape(ENV['BRYAN_REPORTS_SOURCE_URL'].to_s)} BRYAN_BASAL_URL=#{Shellwords.escape(ENV['BRYAN_BASAL_URL'].to_s)}",
+      # Optional, private to this fork: the Open Baysyl link.
+      # Empty when the secret is not set, which leaves the feature hidden.
+      xcargs: "BRYAN_BASAL_URL=#{Shellwords.escape(ENV['BRYAN_BASAL_URL'].to_s)}",
       buildlog_path: 'buildlog'
     )
 

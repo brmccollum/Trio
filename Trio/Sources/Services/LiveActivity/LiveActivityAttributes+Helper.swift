@@ -143,7 +143,8 @@ extension LiveActivityAttributes.ContentState {
             useDetailedViewIOS: settings.lockScreenView == .detailed,
             useDetailedViewWatchOS: settings.smartStackView == .detailed,
             detailedViewState: detailedState,
-            isInitialState: false
+            isInitialState: false,
+            offworld: OffworldTheme.isEnabled ? true : nil
         )
     }
 }

@@ -152,6 +152,10 @@ func bgAndTrend(
     let bgText = context.state.bg
     characters += bgText.count
 
+    // Off-world theme (appearance only): the number takes its band colour; nil keeps the stock rule.
+    let numberColor: Color = LiveActivityOffworld.currentGlucoseColor(context.state, stock: glucoseColor)
+        ?? (hasStaticColorScheme ? .primary : glucoseColor)
+
     // narrow mode is for the minimal dynamic island view
     // there is not enough space to show all three arrow there
     // and everything has to be squeezed together to some degree
@@ -176,14 +180,14 @@ func bgAndTrend(
 
     let stack = HStack(spacing: spacing) {
         Text(bgText)
-            .foregroundStyle(hasStaticColorScheme ? .primary : glucoseColor)
+            .foregroundStyle(numberColor)
             .strikethrough(context.isStale, pattern: .solid, color: .red.opacity(0.6))
         if let direction = directionText {
             let text = Text(direction)
             switch size {
             case .minimal:
                 let scaledText = text.scaleEffect(x: 0.7, y: 0.7, anchor: .leading)
-                scaledText.foregroundStyle(hasStaticColorScheme ? .primary : glucoseColor)
+                scaledText.foregroundStyle(numberColor)
 
             case .compact:
                 text.scaleEffect(x: 0.8, y: 0.8, anchor: .leading).padding(.trailing, -3)
@@ -192,7 +196,7 @@ func bgAndTrend(
                 text.scaleEffect(x: 0.7, y: 0.7, anchor: .leading).padding(.trailing, -5)
             }
         }
-    }.foregroundStyle(hasStaticColorScheme ? .primary : glucoseColor)
+    }.foregroundStyle(numberColor)
         .strikethrough(context.isStale, pattern: .solid, color: .red.opacity(0.6))
 
     return (stack, characters)
@@ -227,8 +231,15 @@ extension View {
         }
     }
 
-    @ViewBuilder func addLiveActivityModifiers(isWatchOS: Bool) -> some View {
-        modifier(LiveActivityModifiers(isWatchOS: isWatchOS))
+    @ViewBuilder func addLiveActivityModifiers(
+        isWatchOS: Bool,
+        state: LiveActivityAttributes.ContentState? = nil
+    ) -> some View {
+        if let state, LiveActivityOffworld.isOn(state) {
+            modifier(LiveActivityOffworldSurface(state: state, isWatchOS: isWatchOS))
+        } else {
+            modifier(LiveActivityModifiers(isWatchOS: isWatchOS))
+        }
     }
 }
 

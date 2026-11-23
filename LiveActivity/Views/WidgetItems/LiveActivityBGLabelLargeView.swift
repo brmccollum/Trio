@@ -12,6 +12,7 @@ struct LiveActivityBGLabelLargeView: View {
         HStack(alignment: .center) {
             Text(context.state.bg)
                 .fontWeight(.bold)
+                .liveActivityOffworldNumber(context.state, size: !isWatchOS ? 26 : 19, color: glucoseColor)
                 .font(!isWatchOS ? .title : .title3)
                 .foregroundStyle(context.isStale ? .secondary : glucoseColor)
                 .strikethrough(context.isStale, pattern: .solid, color: .red.opacity(0.6))

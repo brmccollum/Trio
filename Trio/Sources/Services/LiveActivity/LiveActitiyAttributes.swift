@@ -30,6 +30,12 @@ struct LiveActivityAttributes: ActivityAttributes {
 
         /// true for the first state that is set on the activity
         let isInitialState: Bool
+
+        /// Appearance only: true while the optional Off-world theme is on in the app, so the widget
+        /// extension (which shares no storage with the app) can draw the same palette.
+        /// Optional with a nil default so states written by a build without it still decode,
+        /// and nil or false always means the stock look.
+        var offworld: Bool? = nil
     }
 
     struct ContentAdditionalState: Codable, Hashable {

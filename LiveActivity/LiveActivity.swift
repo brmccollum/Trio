@@ -65,7 +65,7 @@ struct LiveActivity: Widget {
                 )
             }
             .widgetURL(URL(string: "Trio://"))
-            .keylineTint(glucoseColor)
+            .keylineTint(LiveActivityOffworld.currentGlucoseColor(context.state, stock: glucoseColor) ?? glucoseColor)
             .contentMargins(.horizontal, 0, for: .minimal)
             .contentMargins(.trailing, 0, for: .compactLeading)
             .contentMargins(.leading, 0, for: .compactTrailing)

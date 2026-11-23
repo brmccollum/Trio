@@ -31,20 +31,25 @@ struct LiveActivityView: View {
         )
     }
 
+    /// Band colour while the Off-world theme is on, otherwise the stock colour.
+    private var numberColor: Color {
+        LiveActivityOffworld.currentGlucoseColor(context.state, stock: glucoseColor) ?? glucoseColor
+    }
+
     var body: some View {
         if isWatchOS, context.state.useDetailedViewWatchOS {
             VStack {
-                LiveActivityBGLabelWatchView(context: context, glucoseColor: glucoseColor)
+                LiveActivityBGLabelWatchView(context: context, glucoseColor: numberColor)
                 LiveActivityChartView(context: context, additionalState: context.state.detailedViewState)
                     .frame(maxWidth: UIScreen.main.bounds.width * 0.9)
             }
-            .addLiveActivityModifiers(isWatchOS: true)
+            .addLiveActivityModifiers(isWatchOS: true, state: context.state)
 
         } else if isWatchOS {
             HStack {
                 LiveActivityBGLabelLargeView(
                     context: context,
-                    glucoseColor: glucoseColor
+                    glucoseColor: numberColor
                 )
                 Spacer()
                 VStack {
@@ -55,7 +60,7 @@ struct LiveActivityView: View {
                     LiveActivityUpdatedLabelView(context: context, isDetailedLayout: false)
                 }
             }
-            .addLiveActivityModifiers(isWatchOS: true)
+            .addLiveActivityModifiers(isWatchOS: true, state: context.state)
 
         } else if context.state.useDetailedViewIOS {
             VStack {
@@ -116,7 +121,7 @@ struct LiveActivityView: View {
                             case .currentGlucoseLarge:
                                 LiveActivityBGLabelLargeView(
                                     context: context,
-                                    glucoseColor: glucoseColor
+                                    glucoseColor: numberColor
                                 )
                             case .iob:
                                 LiveActivityIOBLabelView(context: context, additionalState: context.state.detailedViewState)
@@ -149,14 +154,17 @@ struct LiveActivityView: View {
                     }
                 }
             }
-            .addLiveActivityModifiers(isWatchOS: false)
+            .addLiveActivityModifiers(isWatchOS: false, state: context.state)
         } else {
             Group {
                 if context.state.isInitialState {
                     Text("Live Activity Expired. Open Trio to Refresh").minimumScaleFactor(0.01)
                 } else {
                     HStack(spacing: 3) {
-                        LiveActivityBGAndTrendView(context: context, size: .expanded, glucoseColor: glucoseColor).font(.title)
+                        LiveActivityBGAndTrendView(context: context, size: .expanded, glucoseColor: glucoseColor)
+                            .liveActivityOffworldNumber(context.state, size: 34, color: numberColor)
+                            .font(.title)
+                        LiveActivityOffworldLowTag(state: context.state)
                         Spacer()
                         VStack(alignment: .trailing, spacing: 5) {
                             LiveActivityGlucoseDeltaLabelView(
@@ -170,7 +178,7 @@ struct LiveActivityView: View {
                     }
                 }
             }
-            .addLiveActivityModifiers(isWatchOS: false)
+            .addLiveActivityModifiers(isWatchOS: false, state: context.state)
         }
     }
 }
@@ -181,7 +189,13 @@ struct LiveActivityExpandedLeadingView: View {
     var glucoseColor: Color
 
     var body: some View {
-        LiveActivityBGAndTrendView(context: context, size: .expanded, glucoseColor: glucoseColor).font(.title2)
+        LiveActivityBGAndTrendView(context: context, size: .expanded, glucoseColor: glucoseColor)
+            .liveActivityOffworldNumber(
+                context.state,
+                size: 22,
+                color: LiveActivityOffworld.currentGlucoseColor(context.state, stock: glucoseColor) ?? glucoseColor
+            )
+            .font(.title2)
             .padding(.leading, 5)
     }
 }

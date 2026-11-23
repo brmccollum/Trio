@@ -35,13 +35,13 @@ struct LiveActivityUpdatedLabelView: View {
 
                 Text("Updated")
                     .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(LiveActivityOffworld.labelStyle(context.state))
             }
         } else {
             HStack {
                 Text("Updated:")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiveActivityOffworld.labelStyle(context.state, stock: HierarchicalShapeStyle.secondary))
 
                 dateText
                     .font(.subheadline)

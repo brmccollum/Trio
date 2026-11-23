@@ -271,11 +271,24 @@ jobs:
       - name: Sync clock
         run: sudo sntp -sS time.windows.com
 
+      # Optional, private to this fork: bundle a recommendations snapshot for the display-only
+      # "Baysyl recommends" screen. Does nothing when the secret is not set. The content is never printed.
+      # The Xcode build phase "Copy Baysyl Recs (optional)" copies the file into the app when it exists.
+      - name: Write BaysylRecs.json (optional)
+        env:
+          BRYAN_BAYSYL_RECS: ${{ secrets.BRYAN_BAYSYL_RECS }}
+        run: |
+          if [ -n "$BRYAN_BAYSYL_RECS" ]; then
+            printf '%s' "$BRYAN_BAYSYL_RECS" > Trio/Resources/BaysylRecs.json
+            echo "BaysylRecs.json written ($(wc -c < Trio/Resources/BaysylRecs.json | tr -d ' ') bytes)."
+          else
+            echo "BRYAN_BAYSYL_RECS is not set; no recommendations bundled."
+          fi
+
       # Build signed Trio IPA file
       - name: Fastlane Build & Archive
         run: bundle exec fastlane build_trio
         env:
-          BRYAN_REPORTS_SOURCE_URL: ${{ secrets.BRYAN_REPORTS_SOURCE_URL }}
           BRYAN_BASAL_URL: ${{ secrets.BRYAN_BASAL_URL }}
           TEAMID: ${{ secrets.TEAMID }}
           GH_PAT: ${{ secrets.GH_PAT }}
