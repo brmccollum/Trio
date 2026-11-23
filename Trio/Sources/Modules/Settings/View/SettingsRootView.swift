@@ -294,6 +294,11 @@ extension Settings {
                         .listRowBackground(OffworldRowFill())
                     }
 
+                    // Private-build extra, reporting only, off by default: sleep and workouts from Apple Health
+                    // (read only) go to the user's Nightscout as Notes.
+                    HealthShareSettingsSection()
+                        .listRowBackground(OffworldRowFill())
+
                     Section(
                         header: Text("Support & Community").offworldSectionHeader(),
                         content: {

@@ -19,6 +19,7 @@ protocol NightscoutManager: GlucoseSource {
     func uploadTempTargets() async
     func uploadProfiles() async throws
     @discardableResult func uploadNoteTreatment(note: String) async -> Bool
+    @discardableResult func uploadDatedNoteTreatments(_ notes: [(note: String, createdAt: Date)]) async -> Bool
     func importSettings() async -> ScheduledNightscoutProfile?
     var cgmURL: URL? { get }
 }
@@ -1388,6 +1389,24 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
                 )
             }
         }
+    }
+
+    /// Reporting only ("Share sleep and workouts"): Notes whose `created_at` is the time the note is about.
+    /// Same inert shape as `uploadNoteTreatment`: event type Note, entered by Trio, text only.
+    @discardableResult func uploadDatedNoteTreatments(_ notes: [(note: String, createdAt: Date)]) async -> Bool {
+        await uploadNonCoreDataTreatments(notes.map { Self.datedNoteTreatment(note: $0.note, createdAt: $0.createdAt) })
+    }
+
+    /// A Note carrying nothing but its text and time: no carbs, insulin, duration, rate or target.
+    static func datedNoteTreatment(note: String, createdAt: Date) -> NightscoutTreatment {
+        NightscoutTreatment(
+            eventType: .nsNote,
+            createdAt: createdAt,
+            enteredBy: NightscoutTreatment.local,
+            notes: note,
+            targetTop: nil,
+            targetBottom: nil
+        )
     }
 
     // TODO: have this checked; this has never actually written anything to file; the entire logic of this function seems broken

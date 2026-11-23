@@ -425,6 +425,8 @@ extension Notification.Name {
                 presentDevelopmentBranchWarningIfNeeded()
                 if initState.complete {
                     performCleanupIfNecessary()
+                    // Reporting only; does nothing unless "Share sleep and workouts" is on. Runs in its own task.
+                    HealthShareService.appDidBecomeActive()
                 }
             }
         }

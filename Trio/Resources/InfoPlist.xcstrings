@@ -1410,7 +1410,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Health App is used to store blood glucose, insulin and carbohydrates"
+            "value" : "Health App is used to store blood glucose, insulin and carbohydrates. If you turn on Share sleep and workouts, Trio also reads your sleep and workouts."
           }
         },
         "es" : {
