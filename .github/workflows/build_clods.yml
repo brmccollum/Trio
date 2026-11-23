@@ -1,0 +1,43 @@
+name: Build Clods
+run-name: Build Clods (${{ github.ref_name }})
+
+# Builds the Clods phone and watch app from the clods/ folder and sends it to TestFlight.
+# Runs when clods/TRIGGER or this file changes on the clods branch. Uses the same secrets as the Trio build.
+on:
+  push:
+    branches: [clods]
+    paths:
+      - "clods/TRIGGER"
+      - ".github/workflows/build_clods.yml"
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-26
+    steps:
+      - name: Select Xcode version
+        run: "sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer"
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Install fastlane
+        run: bundle install
+
+      - name: Sync clock
+        run: sudo sntp -sS time.windows.com
+
+      - name: Build and upload to TestFlight
+        working-directory: clods
+        run: chmod +x make_assets.sh && bundle exec fastlane clods
+        env:
+          BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
