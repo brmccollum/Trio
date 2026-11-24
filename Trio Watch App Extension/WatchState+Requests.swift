@@ -247,25 +247,35 @@ extension WatchState {
         }
     }
 
+    /// How often the display-state request is tried, and how long to wait for an answer each time.
+    private static let watchStateRequestMaxAttempts = 3
+    private static let watchStateRequestRetryDelay: TimeInterval = 4
+
+    /// Asks the phone for a fresh display state. Display only: nothing here sends a treatment.
+    /// If no new state has arrived after a few seconds it asks again, a bounded number of times,
+    /// then clears the syncing indicator so it cannot stay on forever.
     func requestWatchStateUpdate() {
+        watchStateRequestToken += 1
+        sendWatchStateRequest(attempt: 1, token: watchStateRequestToken, lastUpdateAtStart: lastWatchStateUpdate)
+    }
+
+    private func sendWatchStateRequest(attempt: Int, token: Int, lastUpdateAtStart: TimeInterval?) {
         guard let session = session else {
             Task {
                 await WatchLogger.shared.log("⌚️ No session available for state update")
             }
+            showSyncingAnimation = false
             return
         }
 
-        guard session.activationState == .activated else {
+        if session.activationState != .activated {
             Task {
                 await WatchLogger.shared.log("⌚️ Session not activated. Activating...")
             }
             session.activate()
-            return
-        }
-
-        if session.isReachable {
+        } else if session.isReachable {
             Task {
-                await WatchLogger.shared.log("⌚️ Requesting WatchState update from iPhone")
+                await WatchLogger.shared.log("⌚️ Requesting WatchState update from iPhone (attempt \(attempt))")
             }
 
             let message = [WatchMessageKeys.requestWatchUpdate: WatchMessageKeys.watchState]
@@ -279,7 +289,25 @@ extension WatchState {
             }
         } else {
             Task {
-                await WatchLogger.shared.log("⌚️ Phone not reachable for WatchState update")
+                await WatchLogger.shared.log("⌚️ Phone not reachable for WatchState update (attempt \(attempt))")
+            }
+        }
+
+        // Whatever happened above (sent, send error, unreachable, not activated): check back once.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.watchStateRequestRetryDelay) { [weak self] in
+            guard let self else { return }
+            // A newer request chain has taken over.
+            guard token == self.watchStateRequestToken else { return }
+            // A new state arrived; the normal update path has already cleared the indicator.
+            guard self.lastWatchStateUpdate == lastUpdateAtStart else { return }
+
+            if attempt < Self.watchStateRequestMaxAttempts {
+                self.sendWatchStateRequest(attempt: attempt + 1, token: token, lastUpdateAtStart: lastUpdateAtStart)
+            } else {
+                Task {
+                    await WatchLogger.shared.log("⌚️ No WatchState after \(attempt) requests; clearing syncing indicator")
+                }
+                self.showSyncingAnimation = false
             }
         }
     }

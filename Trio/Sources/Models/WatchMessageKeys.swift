@@ -66,4 +66,11 @@ enum WatchMessageKeys {
 
     // Appearance (display only; never read by any command path)
     static let offworldTheme = "offworldTheme"
+
+    // Today's glucose summary for the watch stats page (display only; optional strings)
+    static let todayTimeInRange = "todayTimeInRange"
+    static let todayAverageGlucose = "todayAverageGlucose"
+    static let todayPercentLow = "todayPercentLow"
+    static let todayHighestGlucose = "todayHighestGlucose"
+    static let todayLowestGlucose = "todayLowestGlucose"
 }

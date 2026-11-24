@@ -38,6 +38,19 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
     /// Optional Off-world appearance flag for the watch. Display only.
     var offworldTheme: Bool = false
 
+    /// Today's glucose summary for the watch stats page (local midnight to now). Display only.
+    var todayTimeInRange: String?
+    var todayAverageGlucose: String?
+    var todayPercentLow: String?
+    var todayHighestGlucose: String?
+    var todayLowestGlucose: String?
+
+    /// True for the bare `WatchState(date:)` that `setupWatchState` returns when it could not build a
+    /// real state. A real state always carries `lastLoopTime`. Placeholders must never reach the watch.
+    var isPlaceholder: Bool {
+        lastLoopTime == nil && currentGlucose == nil && iob == nil
+    }
+
     static func == (lhs: WatchState, rhs: WatchState) -> Bool {
         lhs.date == rhs.date &&
             lhs.currentGlucose == rhs.currentGlucose &&
@@ -67,7 +80,12 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
             lhs.forecastConeMin == rhs.forecastConeMin &&
             lhs.forecastConeMax == rhs.forecastConeMax &&
             lhs.forecastLines == rhs.forecastLines &&
-            lhs.offworldTheme == rhs.offworldTheme
+            lhs.offworldTheme == rhs.offworldTheme &&
+            lhs.todayTimeInRange == rhs.todayTimeInRange &&
+            lhs.todayAverageGlucose == rhs.todayAverageGlucose &&
+            lhs.todayPercentLow == rhs.todayPercentLow &&
+            lhs.todayHighestGlucose == rhs.todayHighestGlucose &&
+            lhs.todayLowestGlucose == rhs.todayLowestGlucose
     }
 
     func hash(into hasher: inout Hasher) {
@@ -101,5 +119,75 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
         hasher.combine(forecastConeMax)
         hasher.combine(forecastLines)
         hasher.combine(offworldTheme)
+        hasher.combine(todayTimeInRange)
+        hasher.combine(todayAverageGlucose)
+        hasher.combine(todayPercentLow)
+        hasher.combine(todayHighestGlucose)
+        hasher.combine(todayLowestGlucose)
+    }
+}
+
+/// Today's glucose summary shown on the watch stats page. Display only, pure: no storage, no clock
+/// of its own. Thresholds are fixed at 70 to 180 mg/dL; strings follow the user's units.
+struct WatchGlucoseStats: Equatable {
+    static let placeholder = "--"
+    static let lowLimit = 70
+    static let highLimit = 180
+
+    var timeInRange: String = WatchGlucoseStats.placeholder
+    var average: String = WatchGlucoseStats.placeholder
+    var percentLow: String = WatchGlucoseStats.placeholder
+    var highest: String = WatchGlucoseStats.placeholder
+    var lowest: String = WatchGlucoseStats.placeholder
+
+    /// - Parameters:
+    ///   - readings: stored readings in mg/dL, any order; those outside local midnight...now are ignored.
+    ///   - now: end of the window; the window starts at the local midnight before it.
+    static func today(
+        readings: [(date: Date, glucose: Int)],
+        now: Date,
+        calendar: Calendar = .current,
+        units: GlucoseUnits
+    ) -> WatchGlucoseStats {
+        let startOfDay = calendar.startOfDay(for: now)
+        let values = readings
+            .filter { $0.date >= startOfDay && $0.date <= now && $0.glucose > 0 }
+            .map(\.glucose)
+        return compute(values: values, units: units)
+    }
+
+    /// - Parameter values: readings in mg/dL.
+    static func compute(values: [Int], units: GlucoseUnits) -> WatchGlucoseStats {
+        guard !values.isEmpty, let highest = values.max(), let lowest = values.min() else {
+            return WatchGlucoseStats()
+        }
+        let count = values.count
+        let inRange = values.filter { $0 >= lowLimit && $0 <= highLimit }.count
+        let low = values.filter { $0 < lowLimit }.count
+
+        // Never round a day with readings out of range up to 100 %, nor a day with lows down to 0 %.
+        var inRangePercent = percent(inRange, of: count)
+        if inRange < count { inRangePercent = min(inRangePercent, 99) }
+        let lowPercent = percent(low, of: count)
+
+        let mean = Decimal(values.reduce(0, +)) / Decimal(count)
+
+        return WatchGlucoseStats(
+            timeInRange: "\(inRangePercent)%",
+            average: format(mean, units: units),
+            percentLow: low > 0 && lowPercent == 0 ? "<1%" : "\(lowPercent)%",
+            highest: format(Decimal(highest), units: units),
+            lowest: format(Decimal(lowest), units: units)
+        )
+    }
+
+    private static func percent(_ part: Int, of total: Int) -> Int {
+        Int((Double(part) / Double(total) * 100).rounded())
+    }
+
+    private static func format(_ mgdL: Decimal, units: GlucoseUnits) -> String {
+        units == .mgdL
+            ? "\(Int(Double(truncating: mgdL as NSNumber).rounded()))"
+            : mgdL.formattedAsMmolL
     }
 }

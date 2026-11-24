@@ -4,6 +4,7 @@ import WatchKit
 
 struct TrioMainWatchView: View {
     @State private var state = WatchState()
+    @Environment(\.scenePhase) private var scenePhase
 
     // misc
     @State private var currentPage: Int = 0
@@ -101,6 +102,18 @@ struct TrioMainWatchView: View {
                     glucoseValues: state.glucoseValues
                 )
                 .tag(1)
+
+                // Page 3: Today's glucose summary (display only)
+                TodayStatsView(
+                    timeInRange: state.todayTimeInRange,
+                    average: state.todayAverageGlucose,
+                    percentLow: state.todayPercentLow,
+                    highest: state.todayHighestGlucose,
+                    lowest: state.todayLowestGlucose,
+                    offworldTheme: state.offworldTheme,
+                    isDated: isWatchStateDated || isSessionUnreachable
+                )
+                .tag(2)
             }
             .onAppear {
                 /// Hard reset variables when main view appears
@@ -110,7 +123,14 @@ struct TrioMainWatchView: View {
             }
             .background(trioBackgroundColor)
             .tabViewStyle(.verticalPage)
-            .digitalCrownRotation($currentPage.doubleBinding(), from: 0, through: 1, by: 1)
+            .digitalCrownRotation($currentPage.doubleBinding(), from: 0, through: 2, by: 1)
+            .onChange(of: scenePhase) { _, newScenePhase in
+                // Wrist raise or reopening the app: ask the phone for a fresh display state.
+                // (Handled here, not in TrioWatchApp, because this view owns the WatchState.)
+                if newScenePhase == .active {
+                    state.refreshWatchStateOnForeground()
+                }
+            }
             .onChange(of: state.trend) { _, newTrend in
                 withAnimation {
                     updateRotation(for: newTrend)

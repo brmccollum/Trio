@@ -172,8 +172,12 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
     /// Prepares the current state data to be sent to the Watch
     /// - Returns: WatchState containing current glucose readings and trends and determination infos for displaying cob and iob in the view
     func setupWatchState() async -> WatchState {
-        // Check if a watch is paired and reachable before doing expensive calculations
-        guard let session = session, session.isPaired, session.isReachable, session.isWatchAppInstalled else {
+        // Check if a watch is paired and has the app before doing expensive calculations.
+        // Reachability is deliberately NOT required: an unreachable watch (app in the background)
+        // still gets the latest real state through the application context, so it has something
+        // to show the moment it is opened. Most callers check reachability themselves before calling;
+        // the IOB sink does not, and so acts as the background refresh (about once per loop cycle).
+        guard let session = session, session.isPaired, session.isWatchAppInstalled else {
             debug(.watchManager, "⌚️❌ Skipping setupWatchState - No Watch is paired or app not installed")
             return WatchState(date: Date())
         }
@@ -368,6 +372,21 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
 
                 // Set units
                 watchState.units = self.units
+
+                // Today's summary for the watch stats page (display only): local midnight to now,
+                // from the readings already fetched above (they cover the last 24 hours).
+                let todayStats = WatchGlucoseStats.today(
+                    readings: glucoseObjects.compactMap { glucose in
+                        glucose.date.map { (date: $0, glucose: Int(glucose.glucose)) }
+                    },
+                    now: Date(),
+                    units: self.units
+                )
+                watchState.todayTimeInRange = todayStats.timeInRange
+                watchState.todayAverageGlucose = todayStats.average
+                watchState.todayPercentLow = todayStats.percentLow
+                watchState.todayHighestGlucose = todayStats.highest
+                watchState.todayLowestGlucose = todayStats.lowest
 
                 // Add limits and pump specific dosing increment settings values
                 watchState.maxBolus = self.settingsManager.pumpSettings.maxBolus
@@ -585,6 +604,14 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         }
 
         dictionary[WatchMessageKeys.forecastData] = forecastData
+
+        // Today's summary (display only). Left out when absent, so the watch keeps showing dashes.
+        if let value = state.todayTimeInRange { dictionary[WatchMessageKeys.todayTimeInRange] = value }
+        if let value = state.todayAverageGlucose { dictionary[WatchMessageKeys.todayAverageGlucose] = value }
+        if let value = state.todayPercentLow { dictionary[WatchMessageKeys.todayPercentLow] = value }
+        if let value = state.todayHighestGlucose { dictionary[WatchMessageKeys.todayHighestGlucose] = value }
+        if let value = state.todayLowestGlucose { dictionary[WatchMessageKeys.todayLowestGlucose] = value }
+
         return dictionary
     }
 
@@ -592,6 +619,14 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
     /// - Parameter state: Current WatchState containing glucose data to be sent
     @MainActor func sendDataToWatch(_ state: WatchState) async {
         guard let session = session else { return }
+
+        // Never send the empty placeholder that `setupWatchState` returns when it could not build a
+        // state: it is freshly dated, so the watch would accept it and blank every field (and reset
+        // its copy of the limits to defaults).
+        guard !state.isPlaceholder else {
+            debug(.watchManager, "⌚️ Not sending empty WatchState placeholder")
+            return
+        }
 
         guard session.isPaired else {
             debug(.watchManager, "⌚️❌ No Watch is paired")
@@ -620,14 +655,21 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         let message: [String: Any] = watchStateToDictionary(from: state)
 
         // if session is reachable, it means watch App is in the foreground -> send watchState as message
-        // if session is not reachable, it means it's in background -> send watchState as userInfo
         if session.isReachable {
             session.sendMessage([WatchMessageKeys.watchState: message], replyHandler: nil) { error in
                 debug(.watchManager, "❌ Error sending watch state: \(error)")
             }
-        } else {
-            session.transferUserInfo([WatchMessageKeys.watchState: message])
-            debug(.watchManager, "📤 Transferred new WatchState snapshot via userInfo")
+        }
+
+        // Always keep the latest snapshot in the application context. The system holds only the newest
+        // one and hands it to the watch app when it next runs, so a watch that was unreachable has a
+        // real state on launch. This replaces the former `transferUserInfo` for the background case:
+        // user-info transfers queue up one per send, and the watch drops all but the newest anyway.
+        do {
+            try session.updateApplicationContext([WatchMessageKeys.watchState: message])
+            debug(.watchManager, "📤 Updated application context with new WatchState snapshot")
+        } catch {
+            debug(.watchManager, "❌ Error updating application context: \(error)")
         }
         WatchStateSnapshot.saveLatestDateToDisk(state.date)
     }

@@ -622,6 +622,8 @@
 		BDA25EFD2D261C0000035F34 /* WatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA25EFC2D261BF200035F34 /* WatchState.swift */; };
 		BDA25F1C2D26BD0700035F34 /* TrendShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA25F1B2D26BD0300035F34 /* TrendShape.swift */; };
 		BDA25F1E2D26D5DD00035F34 /* GlucoseChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA25F1D2D26D5D800035F34 /* GlucoseChartView.swift */; };
+		B0D1AB7E00000000000000C2 /* TodayStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000C1 /* TodayStatsView.swift */; };
+		B0D1AB7E00000000000000C4 /* WatchGlucoseStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000C3 /* WatchGlucoseStatsTests.swift */; };
 		BDA25F202D26D5FE00035F34 /* CarbsInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA25F1F2D26D5FB00035F34 /* CarbsInputView.swift */; };
 		BDA25F222D26D62800035F34 /* BolusInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA25F212D26D62200035F34 /* BolusInputView.swift */; };
 		BDA6CC882CAF219B00F942F9 /* TempTargetSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA6CC872CAF219800F942F9 /* TempTargetSetup.swift */; };
@@ -1726,6 +1728,8 @@
 		BDA25EFC2D261BF200035F34 /* WatchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchState.swift; sourceTree = "<group>"; };
 		BDA25F1B2D26BD0300035F34 /* TrendShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShape.swift; sourceTree = "<group>"; };
 		BDA25F1D2D26D5D800035F34 /* GlucoseChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseChartView.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000C1 /* TodayStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayStatsView.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000C3 /* WatchGlucoseStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchGlucoseStatsTests.swift; sourceTree = "<group>"; };
 		BDA25F1F2D26D5FB00035F34 /* CarbsInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarbsInputView.swift; sourceTree = "<group>"; };
 		BDA25F212D26D62200035F34 /* BolusInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BolusInputView.swift; sourceTree = "<group>"; };
 		BDA6CC872CAF219800F942F9 /* TempTargetSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempTargetSetup.swift; sourceTree = "<group>"; };
@@ -3316,6 +3320,7 @@
 				B0D1AB7E00000000000000B7 /* HealthShareTests.swift */,
 				B0D1AB7E0000000000000005 /* PresetQuickButtonsTests.swift */,
 				B0D1AB7E0000000000000009 /* OffworldThemeTests.swift */,
+				B0D1AB7E00000000000000C3 /* WatchGlucoseStatsTests.swift */,
 				B0D1AB7EDA7A000000000007 /* TrioWidgetSnapshotTests.swift */,
 				6EFF860E684B4C9488D438DD /* NightscoutImportRoundTripTests.swift */,
 				BD8FC0702D661B0000B95AED /* TidepoolTherapySettingsTests.swift */,
@@ -4009,6 +4014,7 @@
 				BDA25F212D26D62200035F34 /* BolusInputView.swift */,
 				BDA25F1F2D26D5FB00035F34 /* CarbsInputView.swift */,
 				BDA25F1D2D26D5D800035F34 /* GlucoseChartView.swift */,
+				B0D1AB7E00000000000000C1 /* TodayStatsView.swift */,
 				DD246F052D2836AA0027DDE0 /* GlucoseTrendView.swift */,
 				BD54A9582D27FB6A00F9C1EE /* OverridePresetsView.swift */,
 				BD54A9702D281A7A00F9C1EE /* TempTargetPresetsView.swift */,
@@ -6103,6 +6109,7 @@
 				B0D1AB7E00000000000000B8 /* HealthShareTests.swift in Sources */,
 				B0D1AB7E0000000000000006 /* PresetQuickButtonsTests.swift in Sources */,
 				B0D1AB7E000000000000000A /* OffworldThemeTests.swift in Sources */,
+				B0D1AB7E00000000000000C4 /* WatchGlucoseStatsTests.swift in Sources */,
 				B0D1AB7EDA7A000000000008 /* TrioWidgetSnapshotTests.swift in Sources */,
 				782BE9AEFDD94938A6F3EFE9 /* NightscoutImportRoundTripTests.swift in Sources */,
 				DDDD0FFB2F4E22C000F9C645 /* GlucoseSmoothingTests.swift in Sources */,
@@ -6215,6 +6222,7 @@
 				BD54A95C2D2808A300F9C1EE /* OverridePresetWatch.swift in Sources */,
 				BD54A9592D27FB7800F9C1EE /* OverridePresetsView.swift in Sources */,
 				BDA25F1E2D26D5DD00035F34 /* GlucoseChartView.swift in Sources */,
+				B0D1AB7E00000000000000C2 /* TodayStatsView.swift in Sources */,
 				DDFF204E2DB2C00B00AB8A96 /* WatchStateSnapshot.swift in Sources */,
 				DD6F63CC2D27F615007D94CF /* TreatmentMenuView.swift in Sources */,
 				DD3A3CE72D29C93F00AE478E /* Helper+Extensions.swift in Sources */,

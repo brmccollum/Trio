@@ -57,6 +57,14 @@ import WatchConnectivity
     /// Optional Off-world appearance, mirrored from the phone. Display only; no request reads it.
     var offworldTheme: Bool = WatchOffworldTheme.isEnabled
 
+    /// Today's glucose summary for the stats page, formatted by the phone. Display only.
+    /// `nil` until the phone sends them; the page then shows dashes.
+    var todayTimeInRange: String?
+    var todayAverageGlucose: String?
+    var todayPercentLow: String?
+    var todayHighestGlucose: String?
+    var todayLowestGlucose: String?
+
     // Acknowlegement handling
     var showCommsAnimation: Bool = false
     var showAcknowledgmentBanner: Bool = false
@@ -88,6 +96,10 @@ import WatchConnectivity
 
     /// A flag to tell the UI we’re still updating.
     var showSyncingAnimation: Bool = false
+
+    /// Identifies the newest display-state request chain, so an older chain's retries stop.
+    /// Used only by `requestWatchStateUpdate()`.
+    @ObservationIgnored var watchStateRequestToken: Int = 0
 
     var deviceType = WatchSize.current
 
@@ -179,6 +191,10 @@ import WatchConnectivity
                     await WatchLogger.shared.log("⌚️ Watch session activated with state: \(activationState.rawValue)")
                 }
 
+                // Show the last snapshot the phone left in the application context (if still fresh),
+                // then ask for a new one.
+                self.handleIncomingWatchStatePayload(session.receivedApplicationContext, isLaunchRead: true)
+
                 self.forceConditionalWatchStateUpdate()
 
                 self.isReachable = session.isReachable
@@ -231,10 +247,20 @@ import WatchConnectivity
         handleIncomingWatchStatePayload(userInfo)
     }
 
-    /// Shared path for watch-state payloads from either delegate method.
-    /// Enforces the freshness contract in one place so the two delivery paths
-    /// can't drift.
-    private func handleIncomingWatchStatePayload(_ dictionary: [String: Any]) {
+    /// The phone keeps its newest watch state in the application context; same rules as any other delivery.
+    func session(_: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        handleIncomingWatchStatePayload(applicationContext)
+    }
+
+    /// Shared path for watch-state payloads from every delivery route (message, user info,
+    /// application context). Enforces the freshness contract in one place so the delivery
+    /// paths can't drift.
+    /// - Parameter isLaunchRead: reading the stored application context right after activation
+    ///   (main queue). An empty context is skipped silently, and a snapshot this app already
+    ///   processed in an earlier run may be shown again while nothing has been shown in this run.
+    private func handleIncomingWatchStatePayload(_ dictionary: [String: Any], isLaunchRead: Bool = false) {
+        if isLaunchRead, dictionary[WatchMessageKeys.watchState] == nil { return }
+
         guard let payload = dictionary[WatchMessageKeys.watchState] as? [String: Any],
               let timestamp = payload[WatchMessageKeys.date] as? TimeInterval
         else {
@@ -255,7 +281,8 @@ import WatchConnectivity
 
         // Monotonicity dedup.
         let lastProcessed = WatchStateSnapshot.loadLatestDateFromDisk()
-        guard date > lastProcessed else {
+        let isRedisplayAfterLaunch = isLaunchRead && lastWatchStateUpdate == nil && date == lastProcessed
+        guard date > lastProcessed || isRedisplayAfterLaunch else {
             Task { await WatchLogger.shared.log("⌚️ Skipping duplicate watch state (\(date))") }
             return
         }
@@ -305,6 +332,14 @@ import WatchConnectivity
     ///  - If more than 15 seconds have passed,
     ///
     /// it will show a syncing animation and request a new watch state update from the iPhone app.
+    /// Called when the app becomes active (wrist raise, launch from the dock): asks for a fresh
+    /// state under the same 15-second rule as activation and reachability changes.
+    func refreshWatchStateOnForeground() {
+        DispatchQueue.main.async {
+            self.forceConditionalWatchStateUpdate()
+        }
+    }
+
     private func forceConditionalWatchStateUpdate() {
         guard let lastUpdateTimestamp = lastWatchStateUpdate else {
             Task {
@@ -591,6 +626,27 @@ import WatchConnectivity
             forecastConeMin = forecastPayload[WatchMessageKeys.forecastConeMin] as? [Double] ?? []
             forecastConeMax = forecastPayload[WatchMessageKeys.forecastConeMax] as? [Double] ?? []
             forecastLines = forecastPayload[WatchMessageKeys.forecastLines] as? [String: [Double]] ?? [:]
+        }
+
+        // Today's summary for the stats page (display only). Absent keys leave the old value alone.
+        if let todayTimeInRange = message[WatchMessageKeys.todayTimeInRange] as? String {
+            self.todayTimeInRange = todayTimeInRange
+        }
+
+        if let todayAverageGlucose = message[WatchMessageKeys.todayAverageGlucose] as? String {
+            self.todayAverageGlucose = todayAverageGlucose
+        }
+
+        if let todayPercentLow = message[WatchMessageKeys.todayPercentLow] as? String {
+            self.todayPercentLow = todayPercentLow
+        }
+
+        if let todayHighestGlucose = message[WatchMessageKeys.todayHighestGlucose] as? String {
+            self.todayHighestGlucose = todayHighestGlucose
+        }
+
+        if let todayLowestGlucose = message[WatchMessageKeys.todayLowestGlucose] as? String {
+            self.todayLowestGlucose = todayLowestGlucose
         }
     }
 }
