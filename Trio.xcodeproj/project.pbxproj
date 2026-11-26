@@ -1004,6 +1004,12 @@
 		B0D1AB7E00000000000000B2 /* HealthShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000B1 /* HealthShare.swift */; };
 		B0D1AB7E00000000000000B4 /* HealthShareService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000B3 /* HealthShareService.swift */; };
 		B0D1AB7E00000000000000B6 /* HealthShareSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000B5 /* HealthShareSettingsSection.swift */; };
+		B0D1AB7E00000000000000D2 /* BaysylLaunchGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000D1 /* BaysylLaunchGuard.swift */; };
+		B0D1AB7E00000000000000D4 /* BaysylLaunchReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000D3 /* BaysylLaunchReport.swift */; };
+		B0D1AB7E00000000000000D6 /* BaysylDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000D5 /* BaysylDiagnostics.swift */; };
+		B0D1AB7E00000000000000D8 /* BaysylAddOnsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000D7 /* BaysylAddOnsSettingsSection.swift */; };
+		B0D1AB7E00000000000000DA /* BaysylLaunchGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000D9 /* BaysylLaunchGuardTests.swift */; };
+		B0D1AB7E00000000000000DC /* BaysylDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000DB /* BaysylDiagnosticsTests.swift */; };
 		B0D1AB7E00000000000000B8 /* HealthShareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000B7 /* HealthShareTests.swift */; };
 		B0D1AB7E00000000000000A6 /* BaysylRecsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E00000000000000A5 /* BaysylRecsView.swift */; };
 		B0D1AB7E0000000000000004 /* BaysylRecsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1AB7E0000000000000003 /* BaysylRecsTests.swift */; };
@@ -1793,6 +1799,12 @@
 		B0D1AB7E00000000000000B1 /* HealthShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthShare.swift; sourceTree = "<group>"; };
 		B0D1AB7E00000000000000B3 /* HealthShareService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthShareService.swift; sourceTree = "<group>"; };
 		B0D1AB7E00000000000000B5 /* HealthShareSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthShareSettingsSection.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000D1 /* BaysylLaunchGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylLaunchGuard.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000D3 /* BaysylLaunchReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylLaunchReport.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000D5 /* BaysylDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylDiagnostics.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000D7 /* BaysylAddOnsSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylAddOnsSettingsSection.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000D9 /* BaysylLaunchGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylLaunchGuardTests.swift; sourceTree = "<group>"; };
+		B0D1AB7E00000000000000DB /* BaysylDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylDiagnosticsTests.swift; sourceTree = "<group>"; };
 		B0D1AB7E00000000000000B7 /* HealthShareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthShareTests.swift; sourceTree = "<group>"; };
 		B0D1AB7E00000000000000A5 /* BaysylRecsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylRecsView.swift; sourceTree = "<group>"; };
 		B0D1AB7E0000000000000003 /* BaysylRecsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaysylRecsTests.swift; sourceTree = "<group>"; };
@@ -2439,6 +2451,10 @@
 				B0D1AB7E00000000000000B1 /* HealthShare.swift */,
 				B0D1AB7E00000000000000B3 /* HealthShareService.swift */,
 				B0D1AB7E00000000000000B5 /* HealthShareSettingsSection.swift */,
+				B0D1AB7E00000000000000D1 /* BaysylLaunchGuard.swift */,
+				B0D1AB7E00000000000000D3 /* BaysylLaunchReport.swift */,
+				B0D1AB7E00000000000000D5 /* BaysylDiagnostics.swift */,
+				B0D1AB7E00000000000000D7 /* BaysylAddOnsSettingsSection.swift */,
 			);
 			path = Baysyl;
 			sourceTree = "<group>";
@@ -3318,6 +3334,8 @@
 				B0D1AB7E0000000000000001 /* ReadOnlyPatchPayloadTests.swift */,
 				B0D1AB7E0000000000000003 /* BaysylRecsTests.swift */,
 				B0D1AB7E00000000000000B7 /* HealthShareTests.swift */,
+				B0D1AB7E00000000000000D9 /* BaysylLaunchGuardTests.swift */,
+				B0D1AB7E00000000000000DB /* BaysylDiagnosticsTests.swift */,
 				B0D1AB7E0000000000000005 /* PresetQuickButtonsTests.swift */,
 				B0D1AB7E0000000000000009 /* OffworldThemeTests.swift */,
 				B0D1AB7E00000000000000C3 /* WatchGlucoseStatsTests.swift */,
@@ -5474,6 +5492,10 @@
 				B0D1AB7E00000000000000B2 /* HealthShare.swift in Sources */,
 				B0D1AB7E00000000000000B4 /* HealthShareService.swift in Sources */,
 				B0D1AB7E00000000000000B6 /* HealthShareSettingsSection.swift in Sources */,
+				B0D1AB7E00000000000000D2 /* BaysylLaunchGuard.swift in Sources */,
+				B0D1AB7E00000000000000D4 /* BaysylLaunchReport.swift in Sources */,
+				B0D1AB7E00000000000000D6 /* BaysylDiagnostics.swift in Sources */,
+				B0D1AB7E00000000000000D8 /* BaysylAddOnsSettingsSection.swift in Sources */,
 				DD32CF9A2CC8247B003686D6 /* TrioRemoteControl+Meal.swift in Sources */,
 				BDF34F832C10C5B600D51995 /* DataManager.swift in Sources */,
 				38B4F3C625E5017E00E76A18 /* NotificationCenter.swift in Sources */,
@@ -6107,6 +6129,8 @@
 				B0D1AB7E0000000000000002 /* ReadOnlyPatchPayloadTests.swift in Sources */,
 				B0D1AB7E0000000000000004 /* BaysylRecsTests.swift in Sources */,
 				B0D1AB7E00000000000000B8 /* HealthShareTests.swift in Sources */,
+				B0D1AB7E00000000000000DA /* BaysylLaunchGuardTests.swift in Sources */,
+				B0D1AB7E00000000000000DC /* BaysylDiagnosticsTests.swift in Sources */,
 				B0D1AB7E0000000000000006 /* PresetQuickButtonsTests.swift in Sources */,
 				B0D1AB7E000000000000000A /* OffworldThemeTests.swift in Sources */,
 				B0D1AB7E00000000000000C4 /* WatchGlucoseStatsTests.swift in Sources */,

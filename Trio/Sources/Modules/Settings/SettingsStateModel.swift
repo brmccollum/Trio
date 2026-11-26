@@ -55,6 +55,9 @@ extension Settings {
                 items.append(URL(fileURLWithPath: SimpleLogReporter.logFilePrev))
             }
 
+            // Private build: saved MetricKit diagnostic payloads (newest 20), if any.
+            items.append(contentsOf: BaysylDiagnosticsStore.fileURLs())
+
             return items
         }
 

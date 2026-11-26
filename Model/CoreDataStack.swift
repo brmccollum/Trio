@@ -124,7 +124,40 @@ class CoreDataStack: ObservableObject {
         return taskContext
     }
 
+    /// Bryan's fork: one history replay at a time. Stock code started a new replay for every
+    /// (debounced) save notification with nothing to stop them overlapping; three at once held the
+    /// SQLite connections while the main thread waited for one, and iOS closed the app (0x8BADF00D,
+    /// build 9, Nov 25 2026). A notification that arrives during a replay asks for one more pass.
+    private let historyFetchLock = NSLock()
+    private var historyFetchRunning = false
+    private var historyFetchPending = false
+
     func fetchPersistentHistory() async {
+        let alreadyRunning: Bool = historyFetchLock.withLock {
+            if historyFetchRunning {
+                historyFetchPending = true
+                return true
+            }
+            historyFetchRunning = true
+            return false
+        }
+        if alreadyRunning { return }
+
+        while true {
+            await fetchPersistentHistoryOnce()
+            let again: Bool = historyFetchLock.withLock {
+                if historyFetchPending {
+                    historyFetchPending = false
+                    return true
+                }
+                historyFetchRunning = false
+                return false
+            }
+            if !again { break }
+        }
+    }
+
+    private func fetchPersistentHistoryOnce() async {
         do {
             try await fetchPersistentHistoryTransactionsAndChanges()
         } catch let error as NSError where error.code == NSPersistentHistoryTokenExpiredError {
@@ -157,26 +190,28 @@ class CoreDataStack: ObservableObject {
         taskContext.name = "persistentHistoryContext"
 //        debug(.coreData,"Start fetching persistent history changes from the store ... \(DebuggingIdentifiers.inProgress)")
 
-        try await taskContext.perform {
+        let history: [NSPersistentHistoryTransaction] = try await taskContext.perform {
             // Execute the persistent history change since the last transaction
             /// - Tag: fetchHistory
             let changeRequest = NSPersistentHistoryChangeRequest.fetchHistory(after: self.lastToken)
             let historyResult = try taskContext.execute(changeRequest) as? NSPersistentHistoryResult
-            if let history = historyResult?.result as? [NSPersistentHistoryTransaction], !history.isEmpty {
-                self.mergePersistentHistoryChanges(from: history)
-                return
-            }
+            return (historyResult?.result as? [NSPersistentHistoryTransaction]) ?? []
+        }
+        // Bryan's fork: wait for the merge (which moves `lastToken`) before this replay counts as
+        // finished, so the next one never re-reads the same backlog. No connection is held here.
+        if !history.isEmpty {
+            await mergePersistentHistoryChanges(from: history)
         }
     }
 
-    private func mergePersistentHistoryChanges(from history: [NSPersistentHistoryTransaction]) {
+    private func mergePersistentHistoryChanges(from history: [NSPersistentHistoryTransaction]) async {
 //        debug(.coreData,"Received \(history.count) persistent history transactions")
         // Update view context with objectIDs from history change request
         /// - Tag: mergeChanges
         let viewContext = persistentContainer.viewContext
         let changedObjectIDs = Set(history.flatMap { $0.changes ?? [] }.map(\.changedObjectID))
 
-        viewContext.perform {
+        await viewContext.perform {
             for transaction in history {
                 viewContext.mergeChanges(fromContextDidSave: transaction.objectIDNotification())
                 self.lastToken = transaction.token

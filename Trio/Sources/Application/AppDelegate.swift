@@ -13,6 +13,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, ObservableObject, UNUserNoti
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // Private-build launch guard; a second call after `TrioApp.init` does nothing.
+        BaysylStartup.didFinishLaunching()
+
         // Default to `true` if the key doesn't exist — Trio is opt-out, not opt-in.
         // Read before touching Firebase: an explicit opt-out means we never
         // configure it, so no component can queue or upload anything.

@@ -299,6 +299,11 @@ extension Settings {
                     HealthShareSettingsSection()
                         .listRowBackground(OffworldRowFill())
 
+                    // Private-build extra: on/off switches for the widget feed and the watch extras, and the
+                    // safe-mode line when the launch guard has turned the add-ons off.
+                    BaysylAddOnsSettingsSection()
+                        .listRowBackground(OffworldRowFill())
+
                     Section(
                         header: Text("Support & Community").offworldSectionHeader(),
                         content: {

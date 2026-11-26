@@ -411,7 +411,8 @@ final class LiveActivityData: ObservableObject {
         // Display only: hand the same readings to the home-screen and lock-screen widgets.
         // Placed before the determination guard and before `pushUpdate` checks the Live Activity
         // setting, so widgets are fed whether or not Live Activities are on. Cannot throw or wait.
-        if let snapshot = TrioWidgetSnapshot.make(
+        // Skipped when the widget feed is switched off or the launch guard is in safe mode.
+        if BaysylAddOns.widgetFeed, let snapshot = TrioWidgetSnapshot.make(
             readings: glucose,
             units: settings.units,
             low: settings.low,
@@ -421,6 +422,7 @@ final class LiveActivityData: ObservableObject {
             offworld: OffworldTheme.isEnabled
         ) {
             TrioWidgetSnapshotPublisher.shared.publish(snapshot)
+            BaysylLaunchGuard.shared.mark(.widgetSnapshot)
         }
 
         guard let determination = data.determination else {

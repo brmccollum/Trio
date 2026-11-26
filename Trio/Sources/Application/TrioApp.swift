@@ -128,6 +128,9 @@ extension Notification.Name {
     }
 
     init() {
+        // Private-build launch guard: counts this launch as unfinished before anything else runs.
+        BaysylStartup.appInit()
+
         FileProtectionFixer.fixFlagFileProtectionForPropertyPersistentFlags() // TODO: ‼️ REMOVE ME BEFORE PUBLIC BETA / RELEASE
 
         let notificationCenter = Foundation.NotificationCenter.default
@@ -195,8 +198,12 @@ extension Notification.Name {
                 await performJsonToCoreDataMigrationIfNeeded()
 
                 await Task { @MainActor in
+                    BaysylLaunchGuard.shared.mark(.coreDataReady)
+
                     // Only load services after successful Core Data initialization
                     loadServices()
+
+                    BaysylStartup.servicesAssembled()
 
                     // Clear the persistentHistory and the NSManagedObjects that are older than 90 days every time the app starts
                     cleanupOldData()
@@ -423,9 +430,11 @@ extension Notification.Name {
                     AppVersionChecker.shared.checkAndNotifyVersionStatus(in: rootVC)
                 }
                 presentDevelopmentBranchWarningIfNeeded()
+                BaysylStartup.sceneActive()
                 if initState.complete {
                     performCleanupIfNecessary()
-                    // Reporting only; does nothing unless "Share sleep and workouts" is on. Runs in its own task.
+                    // Reporting only; does nothing unless "Share sleep and workouts" is on, and never in
+                    // safe mode. Runs in its own task.
                     HealthShareService.appDidBecomeActive()
                 }
             }

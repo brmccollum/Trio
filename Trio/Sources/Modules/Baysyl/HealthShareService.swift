@@ -75,6 +75,11 @@ actor HealthShareService {
 
     /// Fire-and-forget entry point for the app becoming active. Never blocks the caller.
     nonisolated static func appDidBecomeActive() {
+        // Safe mode (launch guard) turns every add-on off for the run.
+        guard BaysylAddOns.healthShare else { return }
+        if UserDefaults.standard.bool(forKey: HealthShareDefaultsStore.enabledKey) {
+            BaysylLaunchGuard.shared.mark(.healthTick)
+        }
         Task.detached(priority: .utility) {
             _ = await HealthShareService.shared.foregroundTick()
         }

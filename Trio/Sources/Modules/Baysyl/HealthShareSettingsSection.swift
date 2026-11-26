@@ -21,7 +21,7 @@ struct HealthShareSettingsSection: View {
             Text(verbatim: Self.footnote)
         }
         .onChange(of: isEnabled) { _, isOn in
-            guard isOn else { return }
+            guard isOn, BaysylAddOns.healthShare else { return }
             Task.detached(priority: .utility) {
                 _ = await HealthShareService.shared.enabledByUser()
             }

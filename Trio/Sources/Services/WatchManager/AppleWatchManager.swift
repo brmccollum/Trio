@@ -85,6 +85,9 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             .receive(on: DispatchQueue.global(qos: .background))
             .sink { [weak self] _ in
                 guard let self = self else { return }
+                // Watch extras only: with no reachable watch this is the background refresh. It is held
+                // back during launch and limited to about once per loop cycle (see `BaysylAddOns`).
+                guard self.allowsIOBTriggeredRefresh() else { return }
                 Task {
                     let state = await self.setupWatchState()
                     await self.sendDataToWatch(state)
@@ -93,6 +96,29 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             .store(in: &subscriptions)
 
         registerHandlers()
+        BaysylLaunchGuard.shared.mark(.watchManagerSetUp)
+    }
+
+    private let backgroundRefreshLock = NSLock()
+    private var lastBackgroundRefresh: Date?
+
+    /// Whether an IOB update may build and send a watch state right now.
+    /// Watch extras off: always (stock behaviour; `setupWatchState` then skips an unreachable watch itself).
+    /// Watch extras on and the watch reachable: always. Watch extras on and the watch not reachable: only
+    /// after the launch has finished, and at most once per `BaysylAddOns.backgroundWatchRefreshInterval`,
+    /// so the Core Data fetches behind a state are not run on every IOB update for a watch that is not looking.
+    private func allowsIOBTriggeredRefresh(now: Date = Date()) -> Bool {
+        guard BaysylAddOns.watchExtras else { return true }
+        if let session = session, session.isReachable { return true }
+        backgroundRefreshLock.lock()
+        defer { backgroundRefreshLock.unlock() }
+        guard BaysylAddOns.allowsBackgroundWatchRefresh(
+            lastRefresh: lastBackgroundRefresh,
+            now: now,
+            launchFinished: BaysylLaunchGuard.shared.isFinished
+        ) else { return false }
+        lastBackgroundRefresh = now
+        return true
     }
 
     private func registerHandlers() {
@@ -177,7 +203,11 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         // still gets the latest real state through the application context, so it has something
         // to show the moment it is opened. Most callers check reachability themselves before calling;
         // the IOB sink does not, and so acts as the background refresh (about once per loop cycle).
-        guard let session = session, session.isPaired, session.isWatchAppInstalled else {
+        // With watch extras off (switch or safe mode) reachability IS required, as in stock Trio.
+        let watchExtras = BaysylAddOns.watchExtras
+        guard let session = session, session.isPaired, watchExtras || session.isReachable,
+              session.isWatchAppInstalled
+        else {
             debug(.watchManager, "⌚️❌ Skipping setupWatchState - No Watch is paired or app not installed")
             return WatchState(date: Date())
         }
@@ -375,18 +405,21 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
 
                 // Today's summary for the watch stats page (display only): local midnight to now,
                 // from the readings already fetched above (they cover the last 24 hours).
-                let todayStats = WatchGlucoseStats.today(
-                    readings: glucoseObjects.compactMap { glucose in
-                        glucose.date.map { (date: $0, glucose: Int(glucose.glucose)) }
-                    },
-                    now: Date(),
-                    units: self.units
-                )
-                watchState.todayTimeInRange = todayStats.timeInRange
-                watchState.todayAverageGlucose = todayStats.average
-                watchState.todayPercentLow = todayStats.percentLow
-                watchState.todayHighestGlucose = todayStats.highest
-                watchState.todayLowestGlucose = todayStats.lowest
+                // Not computed with watch extras off; the watch then keeps showing dashes.
+                if watchExtras {
+                    let todayStats = WatchGlucoseStats.today(
+                        readings: glucoseObjects.compactMap { glucose in
+                            glucose.date.map { (date: $0, glucose: Int(glucose.glucose)) }
+                        },
+                        now: Date(),
+                        units: self.units
+                    )
+                    watchState.todayTimeInRange = todayStats.timeInRange
+                    watchState.todayAverageGlucose = todayStats.average
+                    watchState.todayPercentLow = todayStats.percentLow
+                    watchState.todayHighestGlucose = todayStats.highest
+                    watchState.todayLowestGlucose = todayStats.lowest
+                }
 
                 // Add limits and pump specific dosing increment settings values
                 watchState.maxBolus = self.settingsManager.pumpSettings.maxBolus
@@ -653,6 +686,21 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         state.date = Date()
 
         let message: [String: Any] = watchStateToDictionary(from: state)
+
+        // With watch extras off (switch or safe mode), send exactly as stock Trio does: a message when
+        // reachable, a user-info transfer when not, and no application context.
+        guard BaysylAddOns.watchExtras else {
+            if session.isReachable {
+                session.sendMessage([WatchMessageKeys.watchState: message], replyHandler: nil) { error in
+                    debug(.watchManager, "❌ Error sending watch state: \(error)")
+                }
+            } else {
+                session.transferUserInfo([WatchMessageKeys.watchState: message])
+                debug(.watchManager, "📤 Transferred new WatchState snapshot via userInfo")
+            }
+            WatchStateSnapshot.saveLatestDateToDisk(state.date)
+            return
+        }
 
         // if session is reachable, it means watch App is in the foreground -> send watchState as message
         if session.isReachable {
