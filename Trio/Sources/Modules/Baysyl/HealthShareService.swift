@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import Swinject
+import UIKit
 
 // "Share sleep and workouts": the service. Reporting only, off by default.
 //
@@ -8,14 +9,28 @@ import Swinject
 // as inert Notes (see `HealthShareNote`). Nothing here writes to Health, and nothing here is on the loop's path:
 // the work runs in its own low-priority task, started from the app coming to the foreground or from the toggle,
 // catches every error, and only ever calls the Nightscout Note upload.
+//
+// "Heart rate and activity" (day summaries) is a second switch, also off by default. While it is off no heart
+// rate, variability, step or energy type is asked for or read, and sleep and workouts behave as they did before
+// day summaries existed. While it is on, past days are sent a few at a time (`maximumDaysPerSync` per sync).
+//
+// Rules this file keeps:
+// - The Health permission sheet is asked for ONLY from a switch the user has just turned on
+//   (`enabledByUser`, `daysEnabledByUser`). A sync never asks.
+// - A sync runs only while the app is active and the device is unlocked (`isAppReady`).
+// - Nothing here starts a UIApplication background task, and nothing here runs on the main thread except the
+//   one short question "is the app active and unlocked".
 
 // MARK: - Dependencies (injected so tests need neither HealthKit nor a network)
 
 protocol HealthShareReading {
-    /// Shows the Health read-permission sheet if it has not been answered yet. Called only from the toggle.
-    func requestReadAuthorization() async -> Bool
+    /// Shows the Health read-permission sheet if it has not been answered yet. Called only from a switch the
+    /// user has just turned on. The day types are part of the request only when `includingDays` is true.
+    func requestReadAuthorization(includingDays: Bool) async -> Bool
     func sleepSamples(from: Date, to: Date) async throws -> [HealthShareSleepSample]
     func workouts(from: Date, to: Date) async throws -> [HealthShareWorkout]
+    /// True once the Health sheet for the day types has been shown and answered. Asks nothing of the user.
+    func dayAccessWasRequested() async -> Bool
     /// One entry per local day touched by the window: heart rate, variability, steps, active energy.
     func days(from: Date, to: Date) async throws -> [HealthShareDay]
 }
@@ -29,12 +44,15 @@ protocol HealthShareUploading {
 
 protocol HealthShareStateStoring: AnyObject {
     var isEnabled: Bool { get }
+    /// "Heart rate and activity": day summaries. Only looked at while `isEnabled` is true.
+    var isDaysEnabled: Bool { get }
     var lastSuccess: Date? { get set }
     var lastAttempt: Date? { get set }
     /// Dedupe: record key -> the record's end date.
     var uploadedKeys: [String: Date] { get set }
-    /// The `HealthShareService.accessVersion` whose Health types have been asked for and back-filled.
-    var accessVersion: Int { get set }
+    /// Day summaries have been handled up to here (a local midnight, or the time of the last sync once caught
+    /// up). Nil until the first day sync; the back-fill then starts `dayBackfillWindow` ago.
+    var dayCursor: Date? { get set }
 }
 
 // MARK: - Service
@@ -60,27 +78,57 @@ actor HealthShareService {
     /// A sleep period is sent once it has been over for this long, so a night still in progress is not sent.
     static let sleepSettle: TimeInterval = HealthShareCollapser.mergeGap
     static let keyRetention: TimeInterval = 45 * 24 * 60 * 60
-    /// Raised whenever the set of Health types read grows. 2 = heart rate, variability, steps, active energy.
-    static let accessVersion = 2
-    /// The first sync after new types are allowed sends this many past days, once.
+    /// Day summaries go back this far, a few days per sync (never in one go).
     static let dayBackfillWindow: TimeInterval = 60 * 24 * 60 * 60
+    /// At most this many day summaries are read and sent by one sync, oldest first.
+    static let maximumDaysPerSync = 3
+    /// While past days are still waiting, a sync may run this often instead of every `minimumInterval`.
+    static let backfillInterval: TimeInterval = 15 * 60
     /// A day is sent once it has been over for this long, so late watch data has mostly arrived.
     static let daySettle: TimeInterval = 60 * 60
 
     static let shared = HealthShareService(
         reader: HealthKitShareReader(),
         uploader: NightscoutHealthShareUploader(),
-        store: HealthShareDefaultsStore()
+        store: HealthShareDefaultsStore(),
+        isAppReady: { await HealthShareService.appIsActiveAndUnlocked() },
+        breadcrumb: { BaysylLaunchGuard.shared.note($0) }
     )
 
     private let reader: HealthShareReading
     private let uploader: HealthShareUploading
     private let store: HealthShareStateStoring
+    private let isAppReady: @Sendable() async -> Bool
+    private let breadcrumb: @Sendable(String) -> Void
+    private let calendar: Calendar
 
-    init(reader: HealthShareReading, uploader: HealthShareUploading, store: HealthShareStateStoring) {
+    /// - Parameters:
+    ///   - isAppReady: true only while the app is active and protected data can be read. Health is not touched
+    ///     otherwise.
+    ///   - breadcrumb: receives "health sync start" and "health sync end: <outcome>" for each sync that gets as
+    ///     far as reading Health.
+    init(
+        reader: HealthShareReading,
+        uploader: HealthShareUploading,
+        store: HealthShareStateStoring,
+        isAppReady: @escaping @Sendable() async -> Bool = { true },
+        breadcrumb: @escaping @Sendable(String) -> Void = { _ in },
+        calendar: Calendar = .current
+    ) {
         self.reader = reader
         self.uploader = uploader
         self.store = store
+        self.isAppReady = isAppReady
+        self.breadcrumb = breadcrumb
+        self.calendar = calendar
+    }
+
+    /// The app is in the foreground and the device is unlocked. One short hop to the main actor; if the main
+    /// thread is busy this waits for it, it never blocks it.
+    nonisolated static func appIsActiveAndUnlocked() async -> Bool {
+        await MainActor.run {
+            UIApplication.shared.applicationState == .active && UIApplication.shared.isProtectedDataAvailable
+        }
     }
 
     /// Fire-and-forget entry point for the app becoming active. Never blocks the caller.
@@ -100,28 +148,62 @@ actor HealthShareService {
         await sync(now: now, force: false)
     }
 
-    /// Called when the user turns the toggle on: asks for Health read access, then syncs once.
+    /// Called when the user turns "Share sleep and workouts" on: asks for Health read access, then syncs once.
+    /// The day types are part of the request only if "Heart rate and activity" is already on.
     @discardableResult func enabledByUser(now: Date = Date()) async -> Outcome {
         guard store.isEnabled else { return .disabled }
-        _ = await reader.requestReadAuthorization()
+        guard await isAppReady() else { return .notReady }
+        _ = await reader.requestReadAuthorization(includingDays: store.isDaysEnabled)
         return await sync(now: now, force: true)
     }
 
+    /// Called when the user turns "Heart rate and activity" on: asks for read access to the day types, then
+    /// syncs once (which starts the back-fill, `maximumDaysPerSync` days at a time).
+    @discardableResult func daysEnabledByUser(now: Date = Date()) async -> Outcome {
+        guard store.isEnabled, store.isDaysEnabled else { return .disabled }
+        guard await isAppReady() else { return .notReady }
+        _ = await reader.requestReadAuthorization(includingDays: true)
+        return await sync(now: now, force: true)
+    }
+
+    /// Never asks for Health permission: that happens only in the two `...ByUser` calls above.
     private func sync(now: Date, force: Bool) async -> Outcome {
         guard store.isEnabled else { return .disabled }
         if !force {
-            if let last = store.lastSuccess, now.timeIntervalSince(last) < Self.minimumInterval { return .throttled }
             if let last = store.lastAttempt, now.timeIntervalSince(last) < Self.retryInterval { return .throttled }
+            if let last = store.lastSuccess, now.timeIntervalSince(last) < Self.minimumInterval {
+                // Sooner than usual only to work through past days, and only once access has been answered.
+                guard store.isDaysEnabled,
+                      now.timeIntervalSince(last) >= Self.backfillInterval,
+                      Self.isBackfillPending(cursor: store.dayCursor, now: now),
+                      await reader.dayAccessWasRequested()
+                else { return .throttled }
+            }
         }
         guard uploader.canUpload else { return .notReady }
+        // Health is unreadable while the device is locked, and a sync has no business in the background.
+        guard await isAppReady() else { return .notReady }
         store.lastAttempt = now
 
-        let windowStart = Self.windowStart(lastSuccess: store.lastSuccess, now: now)
+        breadcrumb("health sync start")
+        let outcome = await readAndUpload(now: now)
+        breadcrumb("health sync end: \(Self.label(outcome))")
+        return outcome
+    }
 
-        // A build that reads more Health types than the one the switch was turned on in: ask for the new
-        // types once (iOS shows its sheet only for types not yet answered), then send the back-fill.
-        let needsBackfill = store.accessVersion < Self.accessVersion
-        if needsBackfill, !force { _ = await reader.requestReadAuthorization() }
+    static func label(_ outcome: Outcome) -> String {
+        switch outcome {
+        case .disabled: return "disabled"
+        case .throttled: return "throttled"
+        case .notReady: return "not ready"
+        case .nothingNew: return "nothing new"
+        case let .uploaded(count): return "uploaded \(count)"
+        case .failed: return "failed"
+        }
+    }
+
+    private func readAndUpload(now: Date) async -> Outcome {
+        let windowStart = Self.windowStart(lastSuccess: store.lastSuccess, now: now)
 
         let samples: [HealthShareSleepSample]
         let workouts: [HealthShareWorkout]
@@ -133,9 +215,19 @@ actor HealthShareService {
             return .failed
         }
 
-        // Day summaries never hold up sleep and workouts: a failed or refused read is simply no days.
-        let dayStart = needsBackfill ? now.addingTimeInterval(-Self.dayBackfillWindow) : windowStart
-        let days = ((try? await reader.days(from: dayStart, to: now)) ?? []).filter { !$0.isEmpty }
+        // Day summaries: only with their own switch on, only once the user has answered the Health sheet for
+        // them (a sync never asks), and only a few days at a time. They never hold up sleep and workouts: a
+        // failed read is simply no days, and the cursor stays where it was.
+        var days: [HealthShareDay] = []
+        var nextDayCursor: Date?
+        if store.isDaysEnabled, await reader.dayAccessWasRequested(), await isAppReady() {
+            let window = Self.dayWindow(cursor: store.dayCursor, now: now, calendar: calendar)
+            if let read = try? await reader.days(from: window.start, to: window.end) {
+                let batch = Self.dayBatch(read, window: window, now: now)
+                days = batch.days
+                nextDayCursor = batch.cursor
+            }
+        }
 
         let pending = Self.pendingRecords(
             samples: samples,
@@ -151,7 +243,7 @@ actor HealthShareService {
 
         guard !pending.isEmpty else {
             store.lastSuccess = now
-            if needsBackfill, !days.isEmpty { store.accessVersion = Self.accessVersion }
+            if let nextDayCursor { store.dayCursor = nextDayCursor }
             return .nothingNew
         }
         guard await uploader.upload(pending) else {
@@ -163,8 +255,7 @@ actor HealthShareService {
         for record in pending { keys[record.key] = record.createdAt }
         store.uploadedKeys = keys.filter { now.timeIntervalSince($0.value) < Self.keyRetention }
         store.lastSuccess = now
-        // Until Health returns at least one day (access not answered yet), the back-fill stays pending.
-        if needsBackfill, !days.isEmpty { store.accessVersion = Self.accessVersion }
+        if let nextDayCursor { store.dayCursor = nextDayCursor }
         debug(.service, "HealthShare: uploaded \(pending.count) record(s)")
         return .uploaded(pending.count)
     }
@@ -174,6 +265,44 @@ actor HealthShareService {
         let firstRun = now.addingTimeInterval(-firstRunWindow)
         guard let lastSuccess else { return firstRun }
         return max(now.addingTimeInterval(-maximumWindow), min(firstRun, lastSuccess.addingTimeInterval(-overlap)))
+    }
+
+    // MARK: Day summaries, a few at a time (pure)
+
+    /// The whole local days one sync reads: at most `maximumDaysPerSync` of them, starting at a local midnight.
+    /// While past days are waiting it starts at the cursor (oldest first); once caught up it is the last few
+    /// days again, so a day changed by late watch data is sent again. Never earlier than `dayBackfillWindow` ago.
+    static func dayWindow(cursor: Date?, now: Date, calendar: Calendar = .current) -> DateInterval {
+        let span = TimeInterval(maximumDaysPerSync) * 24 * 60 * 60
+        let earliest = now.addingTimeInterval(-dayBackfillWindow)
+        let from = max(earliest, min(cursor ?? earliest, now.addingTimeInterval(-span)))
+        let start = calendar.startOfDay(for: from)
+        let fullEnd = calendar.date(byAdding: .day, value: maximumDaysPerSync, to: start) ?? start.addingTimeInterval(span)
+        return DateInterval(start: start, end: max(start, min(now, fullEnd)))
+    }
+
+    /// The days of one read that may be sent (whole, inside the window, over for `daySettle`), oldest first and
+    /// at most `maximumDaysPerSync`, with the cursor to store once they have been handled.
+    static func dayBatch(
+        _ read: [HealthShareDay],
+        window: DateInterval,
+        now: Date
+    ) -> (days: [HealthShareDay], cursor: Date) {
+        let finished = read
+            .filter {
+                $0.start >= window.start && $0.end <= window.end && $0.end <= now.addingTimeInterval(-daySettle)
+            }
+            .sorted { $0.start < $1.start }
+        let kept = Array(finished.prefix(maximumDaysPerSync))
+        // More than the limit came back (a reader that ignored the window): stop after the last day kept.
+        let cursor = finished.count > kept.count ? (kept.last?.end ?? window.start) : window.end
+        return (kept.filter { !$0.isEmpty }, cursor)
+    }
+
+    /// Past days are still waiting to be sent.
+    static func isBackfillPending(cursor: Date?, now: Date) -> Bool {
+        guard let cursor else { return true }
+        return cursor < now.addingTimeInterval(-TimeInterval(maximumDaysPerSync + 1) * 24 * 60 * 60)
     }
 
     /// Everything finished inside the window that has not been uploaded yet, oldest first.
@@ -222,7 +351,8 @@ final class HealthShareDefaultsStore: HealthShareStateStoring {
     static let lastSuccessKey = "bryan.healthShare.lastSuccess"
     static let lastAttemptKey = "bryan.healthShare.lastAttempt"
     static let uploadedKeysKey = "bryan.healthShare.uploadedKeys"
-    static let accessVersionKey = "bryan.healthShare.accessVersion"
+    static let daysEnabledKey = "bryan.healthShare.daysEnabled"
+    static let dayCursorKey = "bryan.healthShare.dayCursor"
 
     private let defaults: UserDefaults
 
@@ -232,6 +362,9 @@ final class HealthShareDefaultsStore: HealthShareStateStoring {
 
     /// False until the user turns the toggle on.
     var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
+
+    /// False until the user turns "Heart rate and activity" on.
+    var isDaysEnabled: Bool { defaults.bool(forKey: Self.daysEnabledKey) }
 
     var lastSuccess: Date? {
         get { defaults.object(forKey: Self.lastSuccessKey) as? Date }
@@ -248,9 +381,9 @@ final class HealthShareDefaultsStore: HealthShareStateStoring {
         set { defaults.set(newValue, forKey: Self.uploadedKeysKey) }
     }
 
-    var accessVersion: Int {
-        get { defaults.integer(forKey: Self.accessVersionKey) }
-        set { defaults.set(newValue, forKey: Self.accessVersionKey) }
+    var dayCursor: Date? {
+        get { defaults.object(forKey: Self.dayCursorKey) as? Date }
+        set { defaults.set(newValue, forKey: Self.dayCursorKey) }
     }
 }
 
@@ -270,16 +403,20 @@ struct NightscoutHealthShareUploader: HealthShareUploading {
 
 // MARK: - HealthKit (read only)
 
-/// Reads sleep analysis, workouts, heart rate, heart rate variability, steps and active energy. It requests no
-/// write access and saves nothing to Health.
+/// Reads sleep analysis and workouts and, only with "Heart rate and activity" on, heart rate, heart rate
+/// variability, steps and active energy. It requests no write access and saves nothing to Health.
 final class HealthKitShareReader: HealthShareReading {
     /// Created on first use, so no Health store exists for this feature while the toggle is off.
     private lazy var healthStore = HKHealthStore()
 
-    static var readTypes: Set<HKObjectType> {
+    /// "Share sleep and workouts" on its own.
+    static var baseTypes: Set<HKObjectType> {
+        [HKCategoryType(.sleepAnalysis), HKObjectType.workoutType()]
+    }
+
+    /// Added by "Heart rate and activity".
+    static var dayTypes: Set<HKObjectType> {
         [
-            HKCategoryType(.sleepAnalysis),
-            HKObjectType.workoutType(),
             HKQuantityType(.heartRate),
             HKQuantityType(.restingHeartRate),
             HKQuantityType(.heartRateVariabilitySDNN),
@@ -288,13 +425,27 @@ final class HealthKitShareReader: HealthShareReading {
         ]
     }
 
-    func requestReadAuthorization() async -> Bool {
+    static func readTypes(includingDays: Bool) -> Set<HKObjectType> {
+        includingDays ? baseTypes.union(dayTypes) : baseTypes
+    }
+
+    func requestReadAuthorization(includingDays: Bool) async -> Bool {
         guard HKHealthStore.isHealthDataAvailable() else { return false }
         do {
-            try await healthStore.requestAuthorization(toShare: [], read: Self.readTypes)
+            try await healthStore.requestAuthorization(toShare: [], read: Self.readTypes(includingDays: includingDays))
             return true
         } catch {
             return false
+        }
+    }
+
+    /// Asks Health whether the sheet for the day types has already been answered. Shows nothing.
+    func dayAccessWasRequested() async -> Bool {
+        guard HKHealthStore.isHealthDataAvailable() else { return false }
+        return await withCheckedContinuation { continuation in
+            healthStore.getRequestStatusForAuthorization(toShare: [], read: Self.dayTypes) { status, _ in
+                continuation.resume(returning: status == .unnecessary)
+            }
         }
     }
 

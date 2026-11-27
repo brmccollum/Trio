@@ -212,15 +212,19 @@ class CoreDataStack: ObservableObject {
         let changedObjectIDs = Set(history.flatMap { $0.changes ?? [] }.map(\.changedObjectID))
 
         await viewContext.perform {
-            for transaction in history {
-                viewContext.mergeChanges(fromContextDidSave: transaction.objectIDNotification())
-                self.lastToken = transaction.token
-            }
+            // Bryan's fork: named for the launch report only (this block runs on the main thread, once per
+            // replay, however many transactions are waiting). The merge itself is unchanged.
+            BaysylLaunchGuard.shared.track("history merge (\(history.count) transactions)") {
+                for transaction in history {
+                    viewContext.mergeChanges(fromContextDidSave: transaction.objectIDNotification())
+                    self.lastToken = transaction.token
+                }
 
-            // Notify app-side observers (services) about which objects changed. This history-sourced
-            // change feed replaces the hand-rolled changedObjectsOnManagedObjectContextDidSavePublisher.
-            if !changedObjectIDs.isEmpty {
-                self.entityChangeSubject.send(changedObjectIDs)
+                // Notify app-side observers (services) about which objects changed. This history-sourced
+                // change feed replaces the hand-rolled changedObjectsOnManagedObjectContextDidSavePublisher.
+                if !changedObjectIDs.isEmpty {
+                    self.entityChangeSubject.send(changedObjectIDs)
+                }
             }
         }
     }

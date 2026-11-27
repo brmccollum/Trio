@@ -421,7 +421,7 @@ final class LiveActivityData: ObservableObject {
             cob: data.determination?.cob,
             offworld: OffworldTheme.isEnabled
         ) {
-            TrioWidgetSnapshotPublisher.shared.publish(snapshot)
+            TrioWidgetSnapshotPublisher.shared.publishInBackground(snapshot)
             BaysylLaunchGuard.shared.mark(.widgetSnapshot)
         }
 

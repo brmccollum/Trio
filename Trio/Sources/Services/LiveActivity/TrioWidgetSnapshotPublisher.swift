@@ -43,6 +43,17 @@ final class TrioWidgetSnapshotPublisher {
         self.reload = reload
     }
 
+    private static let queue = DispatchQueue(label: "bryan.widgetSnapshot.publish", qos: .utility)
+
+    /// `publish`, off the caller's thread. The caller is the main actor (once per Live Activity refresh), and
+    /// the shared-defaults write and the WidgetKit reload request both talk to other processes: neither may
+    /// hold the main thread. One at a time, in order. A slow one leaves a "slow: widget publish" breadcrumb.
+    func publishInBackground(_ snapshot: TrioWidgetSnapshot) {
+        Self.queue.async { [self] in
+            BaysylLaunchGuard.shared.track("widget publish") { _ = publish(snapshot) }
+        }
+    }
+
     @discardableResult func publish(_ snapshot: TrioWidgetSnapshot) -> Outcome {
         lock.lock()
         defer { lock.unlock() }

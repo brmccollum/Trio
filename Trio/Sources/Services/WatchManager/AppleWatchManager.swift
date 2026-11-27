@@ -713,14 +713,26 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         // one and hands it to the watch app when it next runs, so a watch that was unreachable has a
         // real state on launch. This replaces the former `transferUserInfo` for the background case:
         // user-info transfers queue up one per send, and the watch drops all but the newest anyway.
-        do {
-            try session.updateApplicationContext([WatchMessageKeys.watchState: message])
-            debug(.watchManager, "📤 Updated application context with new WatchState snapshot")
-        } catch {
-            debug(.watchManager, "❌ Error updating application context: \(error)")
+        //
+        // Handed over off the main thread: `updateApplicationContext` returns only after the system has taken
+        // the snapshot (it talks to another process), and this method runs on the main actor. One at a time and
+        // in order, so the newest snapshot is always the last one handed over. A slow one leaves a
+        // "slow: watch context update" breadcrumb for the launch report.
+        let applicationContext: [String: Any] = [WatchMessageKeys.watchState: message]
+        Self.applicationContextQueue.async {
+            BaysylLaunchGuard.shared.track("watch context update") {
+                do {
+                    try session.updateApplicationContext(applicationContext)
+                    debug(.watchManager, "📤 Updated application context with new WatchState snapshot")
+                } catch {
+                    debug(.watchManager, "❌ Error updating application context: \(error)")
+                }
+            }
         }
         WatchStateSnapshot.saveLatestDateToDisk(state.date)
     }
+
+    private static let applicationContextQueue = DispatchQueue(label: "bryan.watch.applicationContext", qos: .utility)
 
     func sendAcknowledgment(toWatch success: Bool, message: String = "", ackCode: AcknowledgmentCode) {
         guard let session = session, session.isReachable else {

@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 import Testing
 
 @testable import Trio
@@ -41,11 +42,25 @@ import Testing
         private(set) var dayQueries = 0
         private(set) var lastDayStart: Date?
 
-        var totalCalls: Int { authorizationRequests + sleepQueries + workoutQueries }
+        /// What `dayAccessWasRequested` answers: the Health sheet for the day types has been answered.
+        var dayAccessRequested = true
+        private(set) var dayAccessChecks = 0
+        private(set) var authorizationIncludedDays: [Bool] = []
+        private(set) var dayWindows: [DateInterval] = []
+        /// When set, `days` answers with one day per local day of the window asked for (plus `dayList`).
+        var generatesDays = false
 
-        func requestReadAuthorization() async -> Bool {
+        var totalCalls: Int { authorizationRequests + sleepQueries + workoutQueries + dayQueries + dayAccessChecks }
+
+        func requestReadAuthorization(includingDays: Bool) async -> Bool {
             authorizationRequests += 1
+            authorizationIncludedDays.append(includingDays)
             return true
+        }
+
+        func dayAccessWasRequested() async -> Bool {
+            dayAccessChecks += 1
+            return dayAccessRequested
         }
 
         func sleepSamples(from: Date, to _: Date) async throws -> [HealthShareSleepSample] {
@@ -61,12 +76,44 @@ import Testing
             return workoutList
         }
 
-        func days(from: Date, to _: Date) async throws -> [HealthShareDay] {
+        func days(from: Date, to: Date) async throws -> [HealthShareDay] {
             dayQueries += 1
             lastDayStart = from
+            dayWindows.append(DateInterval(start: from, end: max(from, to)))
             if shouldThrow || daysShouldThrow { throw TestError("Health unavailable") }
-            return dayList
+            guard generatesDays else { return dayList }
+            var generated: [HealthShareDay] = []
+            var start = HealthShareTests.pacific.startOfDay(for: from)
+            while start < to {
+                generated.append(HealthShareTests.day(HealthShareTests.dayName(start)))
+                start = start.addingTimeInterval(24 * 3600)
+            }
+            return generated + dayList
         }
+    }
+
+    /// Fixed UTC-8, so a local day starts at 08:00Z, as in `day(_:)`.
+    fileprivate static let pacific: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: -8 * 3600)!
+        return calendar
+    }()
+
+    fileprivate static func dayName(_ start: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = pacific
+        formatter.timeZone = pacific.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: start)
+    }
+
+    /// Collects the service's breadcrumbs.
+    private final class Crumbs: @unchecked Sendable {
+        private let lock = NSLock()
+        private var list: [String] = []
+        func add(_ text: String) { lock.withLock { list.append(text) } }
+        var all: [String] { lock.withLock { list } }
     }
 
     private final class FakeUploader: HealthShareUploading {
@@ -88,11 +135,12 @@ import Testing
         var lastSuccess: Date?
         var lastAttempt: Date?
         var uploadedKeys: [String: Date] = [:]
-        var accessVersion: Int
+        var isDaysEnabled: Bool
+        var dayCursor: Date?
 
-        init(isEnabled: Bool, accessVersion: Int = HealthShareService.accessVersion) {
+        init(isEnabled: Bool, isDaysEnabled: Bool = false) {
             self.isEnabled = isEnabled
-            self.accessVersion = accessVersion
+            self.isDaysEnabled = isDaysEnabled
         }
     }
 
@@ -231,7 +279,7 @@ import Testing
 
     // MARK: - Day summaries (heart rate, variability, steps, energy)
 
-    private static func day(
+    fileprivate static func day(
         _ date: String = "2026-01-04",
         resting: Int? = 52,
         hours: [HealthShareHourHeart] = [
@@ -306,37 +354,263 @@ import Testing
         #expect(HealthShareRecord.checksum("abc") != HealthShareRecord.checksum("abd"))
     }
 
-    @Test("A build with new Health types asks once from the foreground and back-fills 60 days") func newTypesBackfill() async {
-        let reader = FakeReader()
-        reader.dayList = [Self.day("2026-01-03"), Self.day("2026-01-04")]
-        let uploader = FakeUploader()
-        let store = FakeStore(isEnabled: true, accessVersion: 1)
-        let service = HealthShareService(reader: reader, uploader: uploader, store: store)
+    // MARK: - "Heart rate and activity": its own switch, a few days at a time, never asks from a sync
 
-        #expect(await service.foregroundTick(now: Self.now) == .uploaded(2))
-        #expect(reader.authorizationRequests == 1)
-        #expect(reader.lastDayStart == Self.now.addingTimeInterval(-60 * 24 * 3600))
-        #expect(store.accessVersion == HealthShareService.accessVersion)
+    private static let dayNotes = "Health day:"
 
-        // Later syncs neither ask again nor look back 60 days.
-        #expect(await service.foregroundTick(now: Self.now.addingTimeInterval(4 * 3600)) == .nothingNew)
-        #expect(reader.authorizationRequests == 1)
-        #expect(reader.lastDayStart == reader.lastWindowStart)
+    @Test("Heart rate and activity is off by default, and has its own stored switch") func daysDefaultOff() throws {
+        let name = "HealthShareTests.days.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = HealthShareDefaultsStore(defaults: defaults)
+        #expect(store.isDaysEnabled == false)
+        #expect(store.dayCursor == nil)
+
+        defaults.set(true, forKey: HealthShareDefaultsStore.enabledKey)
+        #expect(store.isEnabled == true)
+        #expect(store.isDaysEnabled == false)
+        defaults.set(true, forKey: HealthShareDefaultsStore.daysEnabledKey)
+        #expect(store.isDaysEnabled == true)
+        #expect(HealthShareDefaultsStore.daysEnabledKey != HealthShareDefaultsStore.enabledKey)
+
+        store.dayCursor = Self.now
+        #expect(HealthShareDefaultsStore(defaults: defaults).dayCursor == Self.now)
     }
 
-    @Test("No day data yet: the back-fill stays pending, and sleep and workouts still go") func dayReadNeverBlocks() async {
+    @Test("Switch off: no day type is asked for or read, and sleep and workouts still go") func daysOffReadsNoDays() async {
+        let reader = FakeReader()
+        reader.samples = Self.night
+        reader.generatesDays = true
+        let uploader = FakeUploader()
+        let store = FakeStore(isEnabled: true, isDaysEnabled: false)
+        let service = HealthShareService(reader: reader, uploader: uploader, store: store, calendar: Self.pacific)
+
+        #expect(await service.enabledByUser(now: Self.now) == .uploaded(1))
+        #expect(reader.authorizationIncludedDays == [false])
+        #expect(await service.foregroundTick(now: Self.now.addingTimeInterval(4 * 3600)) == .nothingNew)
+        // Turning the day switch "on" in the service while the stored switch is off does nothing either.
+        #expect(await service.daysEnabledByUser(now: Self.now.addingTimeInterval(8 * 3600)) == .disabled)
+
+        #expect(reader.dayQueries == 0)
+        #expect(reader.dayAccessChecks == 0)
+        #expect(reader.authorizationRequests == 1)
+        #expect(store.dayCursor == nil)
+        #expect(uploader.uploaded.map(\.note) == [
+            "Health sleep: start=2026-01-04T23:00:00Z end=2026-01-05T06:00:00Z asleepMin=400"
+        ])
+        #expect(!HealthKitShareReader.readTypes(includingDays: false).contains(HKQuantityType(.heartRate)))
+        #expect(HealthKitShareReader.readTypes(includingDays: false) == HealthKitShareReader.baseTypes)
+        #expect(HealthKitShareReader.readTypes(includingDays: true).isSuperset(of: HealthKitShareReader.dayTypes))
+        #expect(HealthKitShareReader.baseTypes.isDisjoint(with: HealthKitShareReader.dayTypes))
+    }
+
+    @Test("Turning the day switch on asks for the day types once and sends the oldest three days") func daysSwitchOn() async {
+        let reader = FakeReader()
+        reader.generatesDays = true
+        let uploader = FakeUploader()
+        let store = FakeStore(isEnabled: true, isDaysEnabled: true)
+        let service = HealthShareService(reader: reader, uploader: uploader, store: store, calendar: Self.pacific)
+
+        #expect(await service.daysEnabledByUser(now: Self.now) == .uploaded(3))
+        #expect(reader.authorizationIncludedDays == [true])
+        // 60 days before 2026-01-05T20:00Z is 2025-11-06T20:00Z, local day 2025-11-06 (starts 08:00Z).
+        #expect(reader.dayWindows == [DateInterval(start: Self.t("2025-11-06T08:00:00Z"), end: Self.t("2025-11-09T08:00:00Z"))])
+        #expect(uploader.uploaded.map { String($0.note.prefix(27)) } == [
+            "Health day: date=2025-11-06", "Health day: date=2025-11-07", "Health day: date=2025-11-08"
+        ])
+        #expect(store.dayCursor == Self.t("2025-11-09T08:00:00Z"))
+    }
+
+    @Test("The back-fill is incremental: at most three days per sync, oldest first, until caught up") func backfillIsIncremental() async {
+        let reader = FakeReader()
+        reader.generatesDays = true
+        let uploader = FakeUploader()
+        let store = FakeStore(isEnabled: true, isDaysEnabled: true)
+        let service = HealthShareService(reader: reader, uploader: uploader, store: store, calendar: Self.pacific)
+
+        var now = Self.now
+        var sent: [String] = []
+        var syncs = 0
+        while HealthShareService.isBackfillPending(cursor: store.dayCursor, now: now), syncs < 40 {
+            let before = uploader.uploaded.count
+            // Sooner than the catch-up interval: nothing happens.
+            if syncs > 0 {
+                #expect(await service.foregroundTick(now: now.addingTimeInterval(-60)) == .throttled)
+            }
+            let outcome = await service.foregroundTick(now: now)
+            let batch = uploader.uploaded[before...].map(\.note)
+            #expect(batch.count <= HealthShareService.maximumDaysPerSync)
+            #expect(outcome == .uploaded(batch.count))
+            sent.append(contentsOf: batch)
+            syncs += 1
+            now = now.addingTimeInterval(HealthShareService.backfillInterval)
+        }
+
+        // Every read was at most three local days wide and started where the one before stopped.
+        #expect(reader.dayWindows.allSatisfy { $0.duration <= 3 * 24 * 3600 })
+        for (earlier, later) in zip(reader.dayWindows, reader.dayWindows.dropFirst()) {
+            #expect(later.start == earlier.end)
+        }
+        #expect(syncs >= 18 && syncs <= 21)
+        #expect(sent == sent.sorted())
+        #expect(Set(sent).count == sent.count)
+        #expect(sent.first?.hasPrefix("Health day: date=2025-11-06") == true)
+        #expect(reader.authorizationRequests == 0)
+
+        // Caught up: back to one sync every few hours, each re-reading only the last three days.
+        #expect(await service.foregroundTick(now: now) == .throttled)
+        let later = now.addingTimeInterval(HealthShareService.minimumInterval)
+        let before = uploader.uploaded.count
+        _ = await service.foregroundTick(now: later)
+        #expect(uploader.uploaded.count - before <= HealthShareService.maximumDaysPerSync)
+        #expect((reader.dayWindows.last?.duration ?? .infinity) <= 3 * 24 * 3600)
+        #expect((reader.dayWindows.last?.start ?? .distantPast) >= later.addingTimeInterval(-4 * 24 * 3600))
+    }
+
+    @Test("Day windows and batches stay inside their bounds") func dayWindowBounds() {
+        let now = Self.now
+        let first = HealthShareService.dayWindow(cursor: nil, now: now, calendar: Self.pacific)
+        #expect(first.start == Self.t("2025-11-06T08:00:00Z"))
+        #expect(first.duration == 3 * 24 * 3600)
+
+        // A cursor older than the back-fill window is pulled up to it; a recent one re-reads the last days.
+        let ancient = HealthShareService.dayWindow(cursor: .distantPast, now: now, calendar: Self.pacific)
+        #expect(ancient == first)
+        let caughtUp = HealthShareService.dayWindow(cursor: now, now: now, calendar: Self.pacific)
+        #expect(caughtUp.start == Self.t("2026-01-02T08:00:00Z"))
+        #expect(caughtUp.end == Self.t("2026-01-05T08:00:00Z"))
+        #expect(caughtUp.end <= now)
+
+        // A reader that returns far more than it was asked for still yields three days, oldest first,
+        // and the cursor stops after the last one kept.
+        let many = (1 ... 9).map { Self.day("2025-11-0\($0)") } + [Self.day("2025-11-10")]
+        let wide = DateInterval(start: Self.t("2025-11-01T08:00:00Z"), end: Self.t("2025-11-11T08:00:00Z"))
+        let batch = HealthShareService.dayBatch(many.reversed(), window: wide, now: now)
+        #expect(batch.days.map(\.date) == ["2025-11-01", "2025-11-02", "2025-11-03"])
+        #expect(batch.cursor == Self.t("2025-11-04T08:00:00Z"))
+
+        // Days outside the window, or not over for an hour yet, are left for a later sync.
+        let window = DateInterval(start: Self.t("2026-01-03T08:00:00Z"), end: now)
+        let recent = HealthShareService.dayBatch(
+            [Self.day("2026-01-02"), Self.day("2026-01-03"), Self.day("2026-01-04"), Self.day("2026-01-05")],
+            window: window,
+            now: now
+        )
+        #expect(recent.days.map(\.date) == ["2026-01-03", "2026-01-04"])
+        #expect(recent.cursor == now)
+
+        #expect(HealthShareService.isBackfillPending(cursor: nil, now: now))
+        #expect(HealthShareService.isBackfillPending(cursor: now.addingTimeInterval(-10 * 24 * 3600), now: now))
+        #expect(!HealthShareService.isBackfillPending(cursor: now.addingTimeInterval(-2 * 24 * 3600), now: now))
+        #expect(HealthShareService.maximumDaysPerSync == 3)
+    }
+
+    @Test("A sync never asks for Health permission, whatever state it finds") func syncNeverAsks() async {
+        for daysEnabled in [false, true] {
+            for accessRequested in [false, true] {
+                for cursor in [nil, Self.now.addingTimeInterval(-30 * 24 * 3600), Self.now] as [Date?] {
+                    let reader = FakeReader()
+                    reader.samples = Self.night
+                    reader.generatesDays = true
+                    reader.dayAccessRequested = accessRequested
+                    let store = FakeStore(isEnabled: true, isDaysEnabled: daysEnabled)
+                    store.dayCursor = cursor
+                    let service = HealthShareService(
+                        reader: reader, uploader: FakeUploader(), store: store, calendar: Self.pacific
+                    )
+                    var now = Self.now
+                    for _ in 0 ..< 4 {
+                        _ = await service.foregroundTick(now: now)
+                        now = now.addingTimeInterval(HealthShareService.minimumInterval + 60)
+                    }
+                    #expect(reader.authorizationRequests == 0)
+                    // Access not answered yet (or the switch off): the day types are not read at all.
+                    if !daysEnabled || !accessRequested { #expect(reader.dayQueries == 0) }
+                }
+            }
+        }
+    }
+
+    @Test("App not active or device locked: Health is not touched, even from a switch") func notActiveDoesNothing() async {
+        let reader = FakeReader()
+        reader.samples = Self.night
+        reader.generatesDays = true
+        let uploader = FakeUploader()
+        let store = FakeStore(isEnabled: true, isDaysEnabled: true)
+        let crumbs = Crumbs()
+        let service = HealthShareService(
+            reader: reader,
+            uploader: uploader,
+            store: store,
+            isAppReady: { false },
+            breadcrumb: { crumbs.add($0) },
+            calendar: Self.pacific
+        )
+
+        #expect(await service.foregroundTick(now: Self.now) == .notReady)
+        #expect(await service.enabledByUser(now: Self.now) == .notReady)
+        #expect(await service.daysEnabledByUser(now: Self.now) == .notReady)
+
+        #expect(reader.totalCalls == 0)
+        #expect(uploader.attempts == 0)
+        // Not counted as an attempt, so the next time the app is active the sync runs straight away.
+        #expect(store.lastAttempt == nil)
+        #expect(crumbs.all.isEmpty)
+    }
+
+    @Test("Each sync that reads Health leaves a start and an end breadcrumb with its outcome") func syncBreadcrumbs() async {
+        let reader = FakeReader()
+        reader.samples = Self.night
+        let uploader = FakeUploader()
+        let crumbs = Crumbs()
+        let service = HealthShareService(
+            reader: reader,
+            uploader: uploader,
+            store: FakeStore(isEnabled: true),
+            breadcrumb: { crumbs.add($0) }
+        )
+
+        _ = await service.foregroundTick(now: Self.now)
+        _ = await service.foregroundTick(now: Self.now.addingTimeInterval(60)) // throttled: no breadcrumb
+        reader.shouldThrow = true
+        _ = await service.foregroundTick(now: Self.now.addingTimeInterval(4 * 3600))
+
+        #expect(crumbs.all == [
+            "health sync start", "health sync end: uploaded 1", "health sync start", "health sync end: failed"
+        ])
+    }
+
+    @Test("A failed day read never blocks sleep and workouts, and the back-fill stays where it was") func dayReadNeverBlocks() async {
         let reader = FakeReader()
         reader.samples = Self.night
         reader.daysShouldThrow = true
         let uploader = FakeUploader()
-        let store = FakeStore(isEnabled: true, accessVersion: 1)
-        let service = HealthShareService(reader: reader, uploader: uploader, store: store)
+        let store = FakeStore(isEnabled: true, isDaysEnabled: true)
+        let service = HealthShareService(reader: reader, uploader: uploader, store: store, calendar: Self.pacific)
 
         #expect(await service.foregroundTick(now: Self.now) == .uploaded(1))
         #expect(uploader.uploaded.map(\.note) == [
             "Health sleep: start=2026-01-04T23:00:00Z end=2026-01-05T06:00:00Z asleepMin=400"
         ])
-        #expect(store.accessVersion == 1)
+        #expect(reader.dayQueries == 1)
+        #expect(store.dayCursor == nil)
+    }
+
+    @Test("A failed upload leaves the day cursor alone, so the same days are tried again") func failedUploadKeepsCursor() async {
+        let reader = FakeReader()
+        reader.generatesDays = true
+        let uploader = FakeUploader()
+        uploader.succeeds = false
+        let store = FakeStore(isEnabled: true, isDaysEnabled: true)
+        let service = HealthShareService(reader: reader, uploader: uploader, store: store, calendar: Self.pacific)
+
+        #expect(await service.foregroundTick(now: Self.now) == .failed)
+        #expect(store.dayCursor == nil)
+
+        uploader.succeeds = true
+        #expect(await service.foregroundTick(now: Self.now.addingTimeInterval(11 * 60)) == .uploaded(3))
+        #expect(reader.dayWindows.count == 2)
+        #expect(reader.dayWindows.first == reader.dayWindows.last)
     }
 
     @Test("A workout with no distance or energy leaves those fields out") func workoutWithoutDistance() {
@@ -417,6 +691,8 @@ import Testing
 
         _ = await service.enabledByUser(now: Self.now)
         #expect(reader.authorizationRequests == 1)
+        // "Heart rate and activity" is off: the request names sleep and workouts only.
+        #expect(reader.authorizationIncludedDays == [false])
     }
 
     @Test("Nightscout upload off: Health is not read") func notReadyReadsNothing() async {

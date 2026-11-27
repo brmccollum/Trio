@@ -108,6 +108,11 @@ enum BaysylLaunchGuardCore {
     /// How often the finish check is repeated while the loop services do not exist yet.
     static let finishRetry: TimeInterval = 5
     static let stuckPrefix = "main thread stuck after stage "
+    /// Joins the stage to the add-on operation the main thread was inside when it stopped answering.
+    static let duringInfix = " during "
+    static let slowPrefix = "slow: "
+    /// A tracked operation that takes at least this long leaves a "slow: ..." breadcrumb.
+    static let slowOperationThreshold: TimeInterval = 2
     static let recoveredStage = "main thread recovered"
     /// At most this many stuck breadcrumbs per run, so a stuttering main thread cannot flood the ring.
     static let stuckBreadcrumbLimit = 3
@@ -147,14 +152,24 @@ enum BaysylLaunchGuardCore {
 
     /// The main thread stopped answering: the run counts as unfinished again (as if it never reached the
     /// 20-second mark), and a breadcrumb names the last stage reached.
+    /// `during` is the tracked add-on operation the main thread was inside at that moment, if any.
     static func mainThreadStuck(
         _ record: BaysylLaunchRecord,
         priorUnfinished: Int,
+        during operation: String? = nil,
         now: TimeInterval
     ) -> BaysylLaunchRecord {
         var next = record
         next.unfinishedLaunches = max(next.unfinishedLaunches, min(max(0, priorUnfinished), counterCeiling) + 1)
-        return append(next, stage: stuckPrefix + lastRealStage(decode(record.breadcrumbs)), now: now)
+        var stage = stuckPrefix + lastRealStage(decode(record.breadcrumbs))
+        if let operation, !operation.isEmpty { stage += duringInfix + operation }
+        return append(next, stage: stage, now: now)
+    }
+
+    /// The breadcrumb for a tracked operation that took `seconds`, nil when it was quick enough to say nothing.
+    static func slowStage(_ name: String, seconds: TimeInterval) -> String? {
+        guard seconds.isFinite, seconds >= slowOperationThreshold else { return nil }
+        return slowPrefix + name + " " + BaysylBreadcrumb.wholeSeconds(seconds) + "s"
     }
 
     /// The main thread answered again. The count goes back to 0 only if the launch had already finished.
@@ -321,6 +336,7 @@ final class BaysylLaunchGuard {
             record = BaysylLaunchGuardCore.mainThreadStuck(
                 record,
                 priorUnfinished: launchInfo.priorUnfinished,
+                during: currentMainOperation,
                 now: now.timeIntervalSince1970
             )
         } else {
@@ -411,6 +427,57 @@ final class BaysylLaunchGuard {
         lock.lock()
         defer { lock.unlock() }
         return BaysylLaunchGuardCore.decode(record.breadcrumbs)
+    }
+
+    /// Records a free-text breadcrumb, every time it is called (unlike `mark`). For things that happen a few
+    /// times an hour at most, such as a Health sync starting and ending. Same cost as `mark`.
+    func note(_ text: String, now: Date = Date()) {
+        guard !inert else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        _ = startLocked(now: now)
+        record = BaysylLaunchGuardCore.append(record, stage: text, now: now.timeIntervalSince1970)
+        persistLocked()
+    }
+
+    // MARK: Tracked add-on operations
+
+    private let operationLock = NSLock()
+    private var mainOperation: String?
+
+    /// The tracked operation the main thread is inside right now, if any. Read by the heartbeat's thread.
+    var currentMainOperation: String? {
+        operationLock.lock()
+        defer { operationLock.unlock() }
+        return mainOperation
+    }
+
+    /// Runs `body` and names it for the launch report. Costs two short locks and a clock read. On the main
+    /// thread the name is held while `body` runs, so a "main thread stuck" breadcrumb can say "during <name>".
+    /// On any thread, a `body` that takes `slowOperationThreshold` or longer leaves a "slow: <name> Ns"
+    /// breadcrumb. Nothing is written for a quick one.
+    @discardableResult func track<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
+        guard !inert else { return try body() }
+        let onMain = Thread.isMainThread
+        var previous: String?
+        if onMain {
+            operationLock.lock()
+            previous = mainOperation
+            mainOperation = name
+            operationLock.unlock()
+        }
+        let started = DispatchTime.now().uptimeNanoseconds
+        defer {
+            if onMain {
+                operationLock.lock()
+                mainOperation = previous
+                operationLock.unlock()
+            }
+            let ended = DispatchTime.now().uptimeNanoseconds
+            let seconds = ended >= started ? Double(ended - started) / 1_000_000_000 : 0
+            if let stage = BaysylLaunchGuardCore.slowStage(name, seconds: seconds) { note(stage) }
+        }
+        return try body()
     }
 
     private func persistLocked() {

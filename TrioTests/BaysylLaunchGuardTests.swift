@@ -115,6 +115,64 @@ import Testing
         #expect(Core.decode(record.breadcrumbs).last?.stage == "main thread stuck after stage services assembled")
     }
 
+    @Test("A stuck breadcrumb names the add-on operation the main thread was inside") func stuckNamesOperation() {
+        var record = Core.finish(Core.begin(BaysylLaunchRecord(), now: 1).record, now: 21)
+        record = Core.append(record, stage: "health sync start", now: 30)
+        let plain = Core.mainThreadStuck(record, priorUnfinished: 0, now: 40)
+        #expect(Core.decode(plain.breadcrumbs).last?.stage == "main thread stuck after stage health sync start")
+
+        let named = Core.mainThreadStuck(record, priorUnfinished: 0, during: "widget publish", now: 40)
+        #expect(
+            Core.decode(named.breadcrumbs).last?.stage
+                == "main thread stuck after stage health sync start during widget publish"
+        )
+        // Still a stuck marker: the next one names the real stage again, not this one.
+        #expect(Core.lastRealStage(Core.decode(named.breadcrumbs)) == "health sync start")
+        #expect(named.unfinishedLaunches == 1)
+    }
+
+    @Test("Only a slow tracked operation leaves a breadcrumb") func slowOperations() {
+        #expect(Core.slowStage("widget publish", seconds: 0.01) == nil)
+        #expect(Core.slowStage("widget publish", seconds: 1.9) == nil)
+        #expect(Core.slowStage("widget publish", seconds: 9.4) == "slow: widget publish 9s")
+        #expect(Core.slowStage("widget publish", seconds: .nan) == nil)
+    }
+
+    @Test(
+        "Notes repeat, tracked operations are named while they run, and quick ones write nothing"
+    ) @MainActor func notesAndTracking() throws {
+        let name = "BaysylLaunchGuardTests.track.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let launchGuard = BaysylLaunchGuard(defaults: defaults)
+        launchGuard.start()
+
+        launchGuard.note("health sync start")
+        launchGuard.note("health sync end: nothing new")
+        launchGuard.note("health sync start")
+        #expect(launchGuard.breadcrumbs.map(\.stage) == [
+            "app init", "health sync start", "health sync end: nothing new", "health sync start"
+        ])
+
+        #expect(launchGuard.currentMainOperation == nil)
+        let value = launchGuard.track("outer") { () -> Int in
+            #expect(launchGuard.currentMainOperation == "outer")
+            launchGuard.track("inner") { #expect(launchGuard.currentMainOperation == "inner") }
+            #expect(launchGuard.currentMainOperation == "outer")
+            return 7
+        }
+        #expect(value == 7)
+        #expect(launchGuard.currentMainOperation == nil)
+        #expect(launchGuard.breadcrumbs.count == 4)
+
+        // Stuck while inside a tracked operation: the breadcrumb says which.
+        launchGuard.track("watch context update") { _ = launchGuard.noteMainThreadStuck() }
+        #expect(
+            launchGuard.breadcrumbs.last?.stage
+                == "main thread stuck after stage health sync start during watch context update"
+        )
+    }
+
     // MARK: Heartbeat decisions
 
     private let second: UInt64 = 1_000_000_000
