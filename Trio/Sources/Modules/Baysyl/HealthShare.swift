@@ -43,9 +43,38 @@ struct HealthShareWorkout: Equatable {
     let end: Date
     let distanceKm: Double?
     let activeKcal: Double?
+    /// Heart rate over the workout, beats per minute, when Health has it.
+    var averageHeartRate: Double?
+    var maximumHeartRate: Double?
 
     var minutes: Int {
         Int((max(0, end.timeIntervalSince(start)) / 60).rounded())
+    }
+}
+
+/// Heart rate in one hour of a day. `hour` counts whole hours from the start of the local day (0 to 24), so the
+/// exact time is `day.start + hour * 3600` whatever the time zone or daylight-saving change.
+struct HealthShareHourHeart: Equatable {
+    let hour: Int
+    let min: Int
+    let avg: Int
+    let max: Int
+}
+
+/// One finished local day: resting heart rate, heart rate variability, steps, active energy and hourly heart rate.
+struct HealthShareDay: Equatable {
+    /// Local calendar date, "2026-01-02".
+    let date: String
+    let start: Date
+    let end: Date
+    var restingHeartRate: Int?
+    var hrvMs: Int?
+    var steps: Int?
+    var activeKcal: Int?
+    var hours: [HealthShareHourHeart] = []
+
+    var isEmpty: Bool {
+        restingHeartRate == nil && hrvMs == nil && steps == nil && activeKcal == nil && hours.isEmpty
     }
 }
 
@@ -117,20 +146,26 @@ enum HealthShareCollapser {
     }
 }
 
-/// The two note formats. Space-separated `key=value` pairs after a fixed prefix, times in UTC.
+/// The three note formats. Space-separated `key=value` pairs after a fixed prefix, times in UTC.
 ///
 ///     Health sleep: start=2026-01-02T06:10:00Z end=2026-01-02T13:02:00Z asleepMin=412
 ///     Health workout: type=Running start=2026-01-02T17:00:00Z end=2026-01-02T17:11:00Z min=11 km=1.61 kcal=118
+///         hrAvg=152 hrMax=171
+///     Health day: date=2026-01-02 start=2026-01-02T08:00:00Z end=2026-01-03T08:00:00Z restingHR=52 hrv=48
+///         steps=8421 kcal=612 hr=00:48/52/60,01:47/50/58
 ///
-/// `source=inBed` is added to a sleep note only when no asleep stage existed. `km` and `kcal` are left out
-/// when Health has no value. The Mac-side parser is `scripts/health_notes.py`.
+/// `source=inBed` is added to a sleep note only when no asleep stage existed. `km`, `kcal`, `hrAvg`, `hrMax`
+/// and every value of a day note are left out when Health has no value. In a day note `hr` lists
+/// hour:min/avg/max, the hour counted from `start`. The Mac-side parser is `scripts/health_notes.py`.
 enum HealthShareNote {
     static let sleepPrefix = "Health sleep:"
     static let workoutPrefix = "Health workout:"
+    static let dayPrefix = "Health day:"
 
     enum Parsed: Equatable {
         case sleep(start: Date, end: Date, asleepMinutes: Int, source: HealthShareSleepPeriod.Source)
         case workout(type: String, start: Date, end: Date, minutes: Int, km: Double?, kcal: Int?)
+        case day(HealthShareDay)
     }
 
     static func iso(_ date: Date) -> String {
@@ -161,7 +196,44 @@ enum HealthShareNote {
         if let kcal = workout.activeKcal, kcal > 0 {
             text += " kcal=\(Int(kcal.rounded()))"
         }
+        if let average = workout.averageHeartRate, average > 0 {
+            text += " hrAvg=\(Int(average.rounded()))"
+        }
+        if let maximum = workout.maximumHeartRate, maximum > 0 {
+            text += " hrMax=\(Int(maximum.rounded()))"
+        }
         return text
+    }
+
+    static func text(for day: HealthShareDay) -> String {
+        var text = "\(dayPrefix) date=\(sanitizedDate(day.date)) start=\(iso(day.start)) end=\(iso(day.end))"
+        if let value = day.restingHeartRate { text += " restingHR=\(value)" }
+        if let value = day.hrvMs { text += " hrv=\(value)" }
+        if let value = day.steps { text += " steps=\(value)" }
+        if let value = day.activeKcal { text += " kcal=\(value)" }
+        if !day.hours.isEmpty {
+            let hours = day.hours.sorted { $0.hour < $1.hour }.map {
+                String(format: "%02d:%d/%d/%d", locale: Locale(identifier: "en_US_POSIX"), $0.hour, $0.min, $0.avg, $0.max)
+            }
+            text += " hr=" + hours.joined(separator: ",")
+        }
+        return text
+    }
+
+    /// Digits and hyphens only, so the date can never break the `key=value` format.
+    static func sanitizedDate(_ date: String) -> String {
+        let cleaned = String(date.unicodeScalars.filter { ("0" ... "9").contains($0) || $0 == "-" })
+        return cleaned.isEmpty ? "unknown" : cleaned
+    }
+
+    static func hours(from text: String) -> [HealthShareHourHeart] {
+        text.split(separator: ",").compactMap { item in
+            let parts = item.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let hour = Int(parts[0]) else { return nil }
+            let values = parts[1].split(separator: "/").compactMap { Int($0) }
+            guard values.count == 3 else { return nil }
+            return HealthShareHourHeart(hour: hour, min: values[0], avg: values[1], max: values[2])
+        }
     }
 
     /// Letters and digits only, so the type can never break the `key=value` format.
@@ -172,8 +244,9 @@ enum HealthShareNote {
 
     static func parse(_ note: String) -> Parsed? {
         let isSleep = note.hasPrefix(sleepPrefix)
-        guard isSleep || note.hasPrefix(workoutPrefix) else { return nil }
-        let body = note.dropFirst((isSleep ? sleepPrefix : workoutPrefix).count)
+        let isDay = note.hasPrefix(dayPrefix)
+        guard isSleep || isDay || note.hasPrefix(workoutPrefix) else { return nil }
+        let body = note.dropFirst((isSleep ? sleepPrefix : isDay ? dayPrefix : workoutPrefix).count)
         var fields: [String: String] = [:]
         for pair in body.split(separator: " ") {
             let parts = pair.split(separator: "=", maxSplits: 1)
@@ -182,6 +255,19 @@ enum HealthShareNote {
         }
         guard let start = fields["start"].flatMap(date(fromISO:)),
               let end = fields["end"].flatMap(date(fromISO:)) else { return nil }
+        if isDay {
+            guard let date = fields["date"] else { return nil }
+            return .day(HealthShareDay(
+                date: date,
+                start: start,
+                end: end,
+                restingHeartRate: fields["restingHR"].flatMap { Int($0) },
+                hrvMs: fields["hrv"].flatMap { Int($0) },
+                steps: fields["steps"].flatMap { Int($0) },
+                activeKcal: fields["kcal"].flatMap { Int($0) },
+                hours: fields["hr"].map(hours(from:)) ?? []
+            ))
+        }
         if isSleep {
             guard let minutes = fields["asleepMin"].flatMap({ Int($0) }) else { return nil }
             let source = fields["source"].flatMap(HealthShareSleepPeriod.Source.init(rawValue:)) ?? .asleep
@@ -216,5 +302,22 @@ extension HealthShareRecord {
             note: HealthShareNote.text(for: workout),
             createdAt: workout.end
         )
+    }
+
+    /// The key carries a checksum of the text, so a day whose numbers change (late watch data) is sent again;
+    /// the Mac-side table keeps one row per date, newest wins.
+    init(_ day: HealthShareDay) {
+        let note = HealthShareNote.text(for: day)
+        self.init(key: "day:\(day.date):\(Self.checksum(note))", note: note, createdAt: day.end)
+    }
+
+    /// FNV-1a, 64 bit. Stable across launches (unlike `hashValue`).
+    static func checksum(_ text: String) -> String {
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        return String(hash, radix: 16)
     }
 }

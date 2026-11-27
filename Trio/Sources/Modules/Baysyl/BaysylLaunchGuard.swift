@@ -105,6 +105,8 @@ enum BaysylLaunchGuardCore {
     static let ringLimit = 40
     /// The process must stay alive this long for a launch to count as finished.
     static let finishDelay: TimeInterval = 20
+    /// How often the finish check is repeated while the loop services do not exist yet.
+    static let finishRetry: TimeInterval = 5
     static let stuckPrefix = "main thread stuck after stage "
     static let recoveredStage = "main thread recovered"
     /// At most this many stuck breadcrumbs per run, so a stuttering main thread cannot flood the ring.
@@ -286,14 +288,21 @@ final class BaysylLaunchGuard {
     }
 
     /// Calls `finish` from the MAIN queue once the process has been running for `delay` seconds, so a blocked
-    /// main thread never counts as a finished launch. `completion` then runs off the main queue.
+    /// main thread never counts as a finished launch. A responsive main queue is not enough on its own: while the
+    /// loop services have not been assembled (Core Data still loading, or failed), the check is repeated and the
+    /// launch stays unfinished. `completion` then runs off the main queue.
     func scheduleFinish(
         after delay: TimeInterval = BaysylLaunchGuardCore.finishDelay,
         then completion: @escaping (BaysylLaunchInfo) -> Void = { _ in }
     ) {
         guard !inert else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let info = self?.finish() else { return }
+            guard let self else { return }
+            guard self.areServicesReady else {
+                self.scheduleFinish(after: BaysylLaunchGuardCore.finishRetry, then: completion)
+                return
+            }
+            guard let info = self.finish() else { return }
             DispatchQueue.global(qos: .utility).async { completion(info) }
         }
     }
@@ -409,9 +418,14 @@ final class BaysylLaunchGuard {
         defaults.set(record.safeMode, forKey: Keys.safeMode)
         defaults.set(record.safeModeFailures, forKey: Keys.safeModeFailures)
         defaults.set(record.breadcrumbs, forKey: Keys.breadcrumbs)
-        // Written through now: a crash a moment later must still find the count on the next launch.
-        defaults.synchronize()
+        // Flushed straight away so a crash a moment later still finds the count on the next launch, but never
+        // on the caller's thread: this runs under the guard's lock, often on the main thread, and the loop must
+        // not wait behind a preferences write.
+        let defaults = self.defaults
+        Self.flushQueue.async { defaults.synchronize() }
     }
+
+    private static let flushQueue = DispatchQueue(label: "BaysylLaunchGuard.flush", qos: .utility)
 }
 
 // MARK: - Per-add-on switches

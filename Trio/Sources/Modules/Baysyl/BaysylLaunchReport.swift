@@ -126,12 +126,18 @@ final class BaysylNoteOutbox {
     @discardableResult func flush(upload: ([(note: String, createdAt: Date)]) async -> Bool) async -> Bool {
         guard beginFlush() else { return false }
         defer { endFlush() }
-        let waiting = entries
-        guard !waiting.isEmpty else { return true }
-        guard await upload(Self.distinctTimes(waiting)) else { return false }
-        remove(waiting)
-        return true
+        // A note queued while an upload was in the air would otherwise wait for the next trigger: look again
+        // after each pass (a few passes at most, so this can never spin).
+        for _ in 0 ..< Self.flushPasses {
+            let waiting = entries
+            guard !waiting.isEmpty else { return true }
+            guard await upload(Self.distinctTimes(waiting)) else { return false }
+            remove(waiting)
+        }
+        return entries.isEmpty
     }
+
+    static let flushPasses = 3
 
     static func distinctTimes(_ entries: [Entry]) -> [(note: String, createdAt: Date)] {
         var result: [(note: String, createdAt: Date)] = []

@@ -4,8 +4,8 @@ import Foundation
 /// Pure helpers for the one-tap meal preset buttons on the Treatments screen.
 /// No state, no I/O, no Core Data writes: unit tests call these directly.
 enum MealPresetQuickAdd {
-    /// Same limit the Note text field enforces on typed input (`maxLength: 25` in `TreatmentsRootView`).
-    static let noteMaxLength = 25
+    /// Same limit the Note text field enforces on typed input (the food note fields use this constant; stock Trio was 25, raised so a dictated phrase fits).
+    static let noteMaxLength = 60
 
     /// Same order as the "Saved Food" picker in `MealPresetView`: Core Data sort on `dish`, ascending.
     static var sortDescriptors: [NSSortDescriptor] {

@@ -9,7 +9,8 @@ struct HealthShareSettingsSection: View {
 
     static let title = "Share sleep and workouts"
     static let footnote =
-        "Reads your sleep and workouts from Apple Health (read only) and sends them to your Nightscout site as notes. "
+        "Reads your sleep, workouts, heart rate, heart rate variability, steps and active energy from Apple Health "
+            + "(read only) and sends them to your Nightscout site as notes. "
             + "Needs Nightscout upload turned on. While this is off, nothing is read and nothing is sent."
 
     var body: some View {

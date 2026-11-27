@@ -16,6 +16,8 @@ protocol HealthShareReading {
     func requestReadAuthorization() async -> Bool
     func sleepSamples(from: Date, to: Date) async throws -> [HealthShareSleepSample]
     func workouts(from: Date, to: Date) async throws -> [HealthShareWorkout]
+    /// One entry per local day touched by the window: heart rate, variability, steps, active energy.
+    func days(from: Date, to: Date) async throws -> [HealthShareDay]
 }
 
 protocol HealthShareUploading {
@@ -31,6 +33,8 @@ protocol HealthShareStateStoring: AnyObject {
     var lastAttempt: Date? { get set }
     /// Dedupe: record key -> the record's end date.
     var uploadedKeys: [String: Date] { get set }
+    /// The `HealthShareService.accessVersion` whose Health types have been asked for and back-filled.
+    var accessVersion: Int { get set }
 }
 
 // MARK: - Service
@@ -56,6 +60,12 @@ actor HealthShareService {
     /// A sleep period is sent once it has been over for this long, so a night still in progress is not sent.
     static let sleepSettle: TimeInterval = HealthShareCollapser.mergeGap
     static let keyRetention: TimeInterval = 45 * 24 * 60 * 60
+    /// Raised whenever the set of Health types read grows. 2 = heart rate, variability, steps, active energy.
+    static let accessVersion = 2
+    /// The first sync after new types are allowed sends this many past days, once.
+    static let dayBackfillWindow: TimeInterval = 60 * 24 * 60 * 60
+    /// A day is sent once it has been over for this long, so late watch data has mostly arrived.
+    static let daySettle: TimeInterval = 60 * 60
 
     static let shared = HealthShareService(
         reader: HealthKitShareReader(),
@@ -107,6 +117,12 @@ actor HealthShareService {
         store.lastAttempt = now
 
         let windowStart = Self.windowStart(lastSuccess: store.lastSuccess, now: now)
+
+        // A build that reads more Health types than the one the switch was turned on in: ask for the new
+        // types once (iOS shows its sheet only for types not yet answered), then send the back-fill.
+        let needsBackfill = store.accessVersion < Self.accessVersion
+        if needsBackfill, !force { _ = await reader.requestReadAuthorization() }
+
         let samples: [HealthShareSleepSample]
         let workouts: [HealthShareWorkout]
         do {
@@ -117,9 +133,14 @@ actor HealthShareService {
             return .failed
         }
 
+        // Day summaries never hold up sleep and workouts: a failed or refused read is simply no days.
+        let dayStart = needsBackfill ? now.addingTimeInterval(-Self.dayBackfillWindow) : windowStart
+        let days = ((try? await reader.days(from: dayStart, to: now)) ?? []).filter { !$0.isEmpty }
+
         let pending = Self.pendingRecords(
             samples: samples,
             workouts: workouts,
+            days: days,
             windowStart: windowStart,
             now: now,
             uploadedKeys: store.uploadedKeys
@@ -130,6 +151,7 @@ actor HealthShareService {
 
         guard !pending.isEmpty else {
             store.lastSuccess = now
+            if needsBackfill, !days.isEmpty { store.accessVersion = Self.accessVersion }
             return .nothingNew
         }
         guard await uploader.upload(pending) else {
@@ -141,6 +163,8 @@ actor HealthShareService {
         for record in pending { keys[record.key] = record.createdAt }
         store.uploadedKeys = keys.filter { now.timeIntervalSince($0.value) < Self.keyRetention }
         store.lastSuccess = now
+        // Until Health returns at least one day (access not answered yet), the back-fill stays pending.
+        if needsBackfill, !days.isEmpty { store.accessVersion = Self.accessVersion }
         debug(.service, "HealthShare: uploaded \(pending.count) record(s)")
         return .uploaded(pending.count)
     }
@@ -156,6 +180,7 @@ actor HealthShareService {
     static func pendingRecords(
         samples: [HealthShareSleepSample],
         workouts: [HealthShareWorkout],
+        days: [HealthShareDay] = [],
         windowStart: Date,
         now: Date,
         uploadedKeys: [String: Date]
@@ -167,11 +192,15 @@ actor HealthShareService {
                 && $0.start >= windowStart.addingTimeInterval(HealthShareCollapser.mergeGap)
         }
         let finished = workouts.filter { $0.end <= now && $0.end > $0.start }
+        let finishedDays = days.filter { !$0.isEmpty && $0.end <= now.addingTimeInterval(-daySettle) }
 
         var seen = Set<String>()
-        var records = (periods.map(HealthShareRecord.init) + finished.map(HealthShareRecord.init))
-            .filter { uploadedKeys[$0.key] == nil && seen.insert($0.key).inserted }
-            .sorted { $0.createdAt < $1.createdAt }
+        var records = (
+            periods.map(HealthShareRecord.init) + finished.map(HealthShareRecord.init)
+                + finishedDays.map(HealthShareRecord.init)
+        )
+        .filter { uploadedKeys[$0.key] == nil && seen.insert($0.key).inserted }
+        .sorted { $0.createdAt < $1.createdAt }
 
         // Nightscout treats two treatments of one type with the same created_at as one. Keep each record's
         // timestamp distinct within the batch; the exact times are in the note text.
@@ -193,6 +222,7 @@ final class HealthShareDefaultsStore: HealthShareStateStoring {
     static let lastSuccessKey = "bryan.healthShare.lastSuccess"
     static let lastAttemptKey = "bryan.healthShare.lastAttempt"
     static let uploadedKeysKey = "bryan.healthShare.uploadedKeys"
+    static let accessVersionKey = "bryan.healthShare.accessVersion"
 
     private let defaults: UserDefaults
 
@@ -217,6 +247,11 @@ final class HealthShareDefaultsStore: HealthShareStateStoring {
         get { (defaults.dictionary(forKey: Self.uploadedKeysKey) as? [String: Date]) ?? [:] }
         set { defaults.set(newValue, forKey: Self.uploadedKeysKey) }
     }
+
+    var accessVersion: Int {
+        get { defaults.integer(forKey: Self.accessVersionKey) }
+        set { defaults.set(newValue, forKey: Self.accessVersionKey) }
+    }
 }
 
 // MARK: - Nightscout upload
@@ -235,13 +270,22 @@ struct NightscoutHealthShareUploader: HealthShareUploading {
 
 // MARK: - HealthKit (read only)
 
-/// Reads sleep analysis and workouts. It requests no write access and saves nothing to Health.
+/// Reads sleep analysis, workouts, heart rate, heart rate variability, steps and active energy. It requests no
+/// write access and saves nothing to Health.
 final class HealthKitShareReader: HealthShareReading {
     /// Created on first use, so no Health store exists for this feature while the toggle is off.
     private lazy var healthStore = HKHealthStore()
 
     static var readTypes: Set<HKObjectType> {
-        [HKCategoryType(.sleepAnalysis), HKObjectType.workoutType()]
+        [
+            HKCategoryType(.sleepAnalysis),
+            HKObjectType.workoutType(),
+            HKQuantityType(.heartRate),
+            HKQuantityType(.restingHeartRate),
+            HKQuantityType(.heartRateVariabilitySDNN),
+            HKQuantityType(.stepCount),
+            HKQuantityType(.activeEnergyBurned)
+        ]
     }
 
     func requestReadAuthorization() async -> Bool {
@@ -278,8 +322,110 @@ final class HealthKitShareReader: HealthShareReading {
                 end: workout.endDate,
                 distanceKm: Self.distanceKm(of: workout),
                 activeKcal: workout.statistics(for: HKQuantityType(.activeEnergyBurned))?
-                    .sumQuantity()?.doubleValue(for: .kilocalorie())
+                    .sumQuantity()?.doubleValue(for: .kilocalorie()),
+                averageHeartRate: workout.statistics(for: HKQuantityType(.heartRate))?
+                    .averageQuantity()?.doubleValue(for: Self.beatsPerMinute),
+                maximumHeartRate: workout.statistics(for: HKQuantityType(.heartRate))?
+                    .maximumQuantity()?.doubleValue(for: Self.beatsPerMinute)
             )
+        }
+    }
+
+    private static var beatsPerMinute: HKUnit { HKUnit.count().unitDivided(by: .minute()) }
+
+    func days(from: Date, to: Date) async throws -> [HealthShareDay] {
+        guard HKHealthStore.isHealthDataAvailable(), to > from else { return [] }
+        let calendar = Calendar.current
+        let anchor = calendar.startOfDay(for: from)
+        let hour = DateComponents(hour: 1)
+        let day = DateComponents(day: 1)
+
+        let heart = try await statistics(
+            .heartRate, [.discreteAverage, .discreteMin, .discreteMax], anchor: anchor, to: to, every: hour
+        )
+        let resting = try await statistics(.restingHeartRate, .discreteAverage, anchor: anchor, to: to, every: day)
+        let variability = try await statistics(
+            .heartRateVariabilitySDNN, .discreteAverage, anchor: anchor, to: to, every: day
+        )
+        let steps = try await statistics(.stepCount, .cumulativeSum, anchor: anchor, to: to, every: day)
+        let energy = try await statistics(.activeEnergyBurned, .cumulativeSum, anchor: anchor, to: to, every: day)
+
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        var byDay: [Date: HealthShareDay] = [:]
+        func update(_ date: Date, _ change: (inout HealthShareDay) -> Void) {
+            let start = calendar.startOfDay(for: date)
+            var entry = byDay[start] ?? HealthShareDay(
+                date: formatter.string(from: start),
+                start: start,
+                end: calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(24 * 60 * 60)
+            )
+            change(&entry)
+            byDay[start] = entry
+        }
+
+        let bpm = Self.beatsPerMinute
+        for item in heart {
+            guard let average = item.averageQuantity()?.doubleValue(for: bpm),
+                  let low = item.minimumQuantity()?.doubleValue(for: bpm),
+                  let high = item.maximumQuantity()?.doubleValue(for: bpm) else { continue }
+            let offset = Int(item.startDate.timeIntervalSince(calendar.startOfDay(for: item.startDate)) / 3600)
+            update(item.startDate) {
+                $0.hours.append(HealthShareHourHeart(
+                    hour: offset,
+                    min: Int(low.rounded()),
+                    avg: Int(average.rounded()),
+                    max: Int(high.rounded())
+                ))
+            }
+        }
+        for item in resting {
+            guard let value = item.averageQuantity()?.doubleValue(for: bpm) else { continue }
+            update(item.startDate) { $0.restingHeartRate = Int(value.rounded()) }
+        }
+        for item in variability {
+            guard let value = item.averageQuantity()?.doubleValue(for: .secondUnit(with: .milli)) else { continue }
+            update(item.startDate) { $0.hrvMs = Int(value.rounded()) }
+        }
+        for item in steps {
+            guard let value = item.sumQuantity()?.doubleValue(for: .count()), value > 0 else { continue }
+            update(item.startDate) { $0.steps = Int(value.rounded()) }
+        }
+        for item in energy {
+            guard let value = item.sumQuantity()?.doubleValue(for: .kilocalorie()), value > 0 else { continue }
+            update(item.startDate) { $0.activeKcal = Int(value.rounded()) }
+        }
+        return byDay.values.sorted { $0.start < $1.start }
+    }
+
+    private func statistics(
+        _ identifier: HKQuantityTypeIdentifier,
+        _ options: HKStatisticsOptions,
+        anchor: Date,
+        to: Date,
+        every interval: DateComponents
+    ) async throws -> [HKStatistics] {
+        let predicate = HKQuery.predicateForSamples(withStart: anchor, end: to, options: [])
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKStatisticsCollectionQuery(
+                quantityType: HKQuantityType(identifier),
+                quantitySamplePredicate: predicate,
+                options: options,
+                anchorDate: anchor,
+                intervalComponents: interval
+            )
+            query.initialResultsHandler = { _, collection, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: collection?.statistics() ?? [])
+                }
+            }
+            healthStore.execute(query)
         }
     }
 

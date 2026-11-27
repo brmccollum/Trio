@@ -344,6 +344,9 @@ public struct TextFieldWithToolBarString: UIViewRepresentable {
         context.coordinator.textField = textField
         textField.inputAccessoryView = isDismissible ? createToolbar(for: textField, context: context) : nil
         textField.addTarget(context.coordinator, action: #selector(Coordinator.editingDidBegin), for: .editingDidBegin)
+        // Every edit the field accepts reaches the binding from here, whatever made it: a key, dictation,
+        // a keyboard suggestion, a paste. The delegate below is only asked about some of those.
+        textField.addTarget(context.coordinator, action: #selector(Coordinator.editingChanged), for: .editingChanged)
         textField.delegate = context.coordinator
         textField.text = text
         textField.placeholder = placeholder
@@ -384,7 +387,11 @@ public struct TextFieldWithToolBarString: UIViewRepresentable {
     }
 
     public func updateUIView(_ textField: UITextField, context: Context) {
-        if textField.text != text {
+        context.coordinator.parent = self
+
+        // Never replace the text while the keyboard is still composing it (dictation, multi-stage input):
+        // assigning `text` there ends the composition and throws away what was being entered.
+        if textField.markedTextRange == nil, (textField.text ?? "") != text {
             textField.text = text
         }
 
@@ -427,6 +434,34 @@ public struct TextFieldWithToolBarString: UIViewRepresentable {
                 textField.moveCursorToEnd()
             }
         }
+
+        /// Mirrors the field into the binding after every accepted edit, so the two never disagree when the
+        /// view is next updated. Text that arrived without the delegate being asked (dictation can) is cut to
+        /// `maxLength` here, once it is no longer being composed.
+        @objc fileprivate func editingChanged(_ textField: UITextField) {
+            var value = textField.text ?? ""
+            if textField.markedTextRange == nil, let maxLength, (value as NSString).length > maxLength {
+                value = Self.prefix(of: value, fittingUTF16: maxLength)
+                textField.text = value
+            }
+            if parent.text != value {
+                parent.text = value
+            }
+        }
+
+        /// The longest whole-character prefix of `string` that is at most `room` UTF-16 units long.
+        static func prefix(of string: String, fittingUTF16 room: Int) -> String {
+            guard room > 0 else { return "" }
+            var result = ""
+            var used = 0
+            for character in string {
+                let length = character.utf16.count
+                if used + length > room { break }
+                result.append(character)
+                used += length
+            }
+            return result
+        }
     }
 }
 
@@ -445,17 +480,28 @@ extension TextFieldWithToolBarString.Coordinator: UITextFieldDelegate {
 
         // If there's a maxLength, ensure the new length is within the limit
         if let maxLength = parent.maxLength, newLength > maxLength {
+            // A single key press past the limit is refused, as before. A longer insertion (dictation, a paste,
+            // a keyboard suggestion) used to be refused whole, so nothing appeared at all: now as much of it as
+            // fits is kept.
+            let room = maxLength - (currentText.length - range.length)
+            let fitting = Self.prefix(of: string, fittingUTF16: room)
+            guard string.count > 1, !fitting.isEmpty, range.location + range.length <= currentText.length else {
+                return false
+            }
+            let filled = currentText.replacingCharacters(in: range, with: fitting)
+            textField.text = filled
+            if parent.text != filled {
+                parent.text = filled
+            }
             return false
         }
 
-        // Attempt to replace characters in range with the replacement string
-        let newText = currentText.replacingCharacters(in: range, with: string)
-
-        // Update the binding text state
-        DispatchQueue.main.async {
-            self.parent.text = newText
-        }
-
+        // The binding is updated by `editingChanged` once the field has taken the edit.
         return true
+    }
+
+    public func textFieldDidEndEditing(_ textField: UITextField) {
+        // Whatever the field holds when editing ends is what the binding holds.
+        editingChanged(textField)
     }
 }

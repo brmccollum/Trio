@@ -413,4 +413,25 @@ import Testing
         outbox.enqueue("line one\nline two", at: start)
         #expect(BaysylNoteOutbox(defaults: defaults).entries.map(\.note) == ["line one line two"])
     }
+
+    @Test("A note queued while an upload is in the air goes out in the same flush") func outboxPicksUpLateNote() async throws {
+        let name = "BaysylLaunchGuardTests.outboxLate.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let outbox = BaysylNoteOutbox(defaults: defaults)
+        outbox.enqueue("first", at: Date(timeIntervalSince1970: 1_764_000_000))
+
+        var batches: [[String]] = []
+        let done = await outbox.flush { notes in
+            batches.append(notes.map(\.note))
+            if batches.count == 1 {
+                outbox.enqueue("second", at: Date(timeIntervalSince1970: 1_764_000_060))
+            }
+            return true
+        }
+        #expect(done == true)
+        #expect(batches == [["first"], ["second"]])
+        #expect(outbox.entries.isEmpty)
+    }
 }

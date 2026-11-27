@@ -750,7 +750,10 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         debug(.watchManager, "📱 Phone session activated with state: \(activationState.rawValue)")
         debug(.watchManager, "📱 Phone isReachable after activation: \(session.isReachable)")
 
-        // Try to send initial data after activation
+        // Try to send initial data after activation. With watch extras on, `setupWatchState` no longer needs a
+        // reachable watch, so during launch this would be a full state build for a watch that is not looking:
+        // hold it until the launch has finished (the IOB refresh sends the state soon after).
+        if BaysylAddOns.watchExtras, !session.isReachable, !BaysylLaunchGuard.shared.isFinished { return }
         Task {
             let state = await self.setupWatchState()
             await self.sendDataToWatch(state)

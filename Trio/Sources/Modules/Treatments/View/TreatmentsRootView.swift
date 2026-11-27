@@ -432,7 +432,7 @@ extension Treatments {
                                     TextFieldWithToolBarString(
                                         text: $state.note,
                                         placeholder: String(localized: "Note..."),
-                                        maxLength: 25
+                                        maxLength: MealPresetQuickAdd.noteMaxLength
                                     )
                                 }
                             }.listRowBackground(Color.chart)

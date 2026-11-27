@@ -19,12 +19,56 @@ enum BaysylDiagnosticSummary {
     static let maxNotesPerPayload = 3
     static let frameLimit = 12
     static let fieldLimit = 160
+    /// With frames of the app's own binaries on the busiest path: this many of them, and this many system frames.
+    static let appFrameLimit = 8
+    static let systemFrameLimit = 4
+    /// With no app frame at all, a long stack is shown as its first few frames (which thread and process it is)
+    /// and its deepest ones (where the time went): `outerFrameLimit` + the rest of `frameLimit`.
+    static let outerFrameLimit = 4
+    /// Guards against a malformed or enormous tree; a real stack is far shallower.
+    static let maxDepth = 4000
+    static let cpuLabel = "cpu exception"
+
+    /// One frame of a call stack tree. `isApp` is true when its binary ships inside the app bundle.
+    struct Frame: Equatable {
+        let name: String
+        let offset: String
+        let isApp: Bool
+
+        var text: String { "\(name)+\(offset)" }
+    }
+
+    /// One summary and the kind of diagnostic it describes ("crash", "hang", "cpu exception", ...).
+    struct Labelled: Equatable {
+        let label: String
+        let text: String
+    }
+
+    /// Names of the binaries that ship inside the app bundle: the app itself, its extensions and its embedded
+    /// frameworks. Frames in these are "our code"; everything else is the system.
+    static let bundledBinaryNames: Set<String> = {
+        var names = Set<String>()
+        let main = Bundle.main
+        if let name = main.executableURL?.lastPathComponent, !name.isEmpty { names.insert(name) }
+        for case let directory? in [main.builtInPlugInsURL, main.privateFrameworksURL] {
+            guard let items = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ) else { continue }
+            for item in items where item.pathExtension == "appex" || item.pathExtension == "framework" {
+                let fallback = item.deletingPathExtension().lastPathComponent
+                let name = Bundle(url: item)?.executableURL?.lastPathComponent ?? fallback
+                if !name.isEmpty { names.insert(name) }
+            }
+        }
+        return names
+    }()
 
     /// One entry per kind of diagnostic in a payload, in the order they are reported.
     private static let kinds: [(key: String, label: String)] = [
         ("crashDiagnostics", "crash"),
         ("hangDiagnostics", "hang"),
-        ("cpuExceptionDiagnostics", "cpu exception"),
+        ("cpuExceptionDiagnostics", cpuLabel),
         ("diskWriteExceptionDiagnostics", "disk write exception")
     ]
 
@@ -33,15 +77,41 @@ enum BaysylDiagnosticSummary {
     static func summaries(
         payloadJSON: Data,
         fallbackBuild: String,
-        limit: Int = BaysylLaunchReport.noteLimit
+        limit: Int = BaysylLaunchReport.noteLimit,
+        appBinaries: Set<String> = bundledBinaryNames,
+        appBundleID: String? = Bundle.main.bundleIdentifier
     ) -> [String] {
+        labelledSummaries(
+            payloadJSON: payloadJSON,
+            fallbackBuild: fallbackBuild,
+            limit: limit,
+            appBinaries: appBinaries,
+            appBundleID: appBundleID
+        ).map(\.text)
+    }
+
+    /// The same summaries, each with the kind of diagnostic it describes (used to limit how often one kind is sent).
+    static func labelledSummaries(
+        payloadJSON: Data,
+        fallbackBuild: String,
+        limit: Int = BaysylLaunchReport.noteLimit,
+        appBinaries: Set<String> = bundledBinaryNames,
+        appBundleID: String? = Bundle.main.bundleIdentifier
+    ) -> [Labelled] {
         guard let root = (try? JSONSerialization.jsonObject(with: payloadJSON)) as? [String: Any] else { return [] }
 
-        var all: [String] = []
+        var all: [Labelled] = []
         for kind in kinds {
             guard let diagnostics = root[kind.key] as? [Any] else { continue }
             for case let diagnostic as [String: Any] in diagnostics {
-                all.append(summary(of: diagnostic, label: kind.label, fallbackBuild: fallbackBuild))
+                let text = summary(
+                    of: diagnostic,
+                    label: kind.label,
+                    fallbackBuild: fallbackBuild,
+                    appBinaries: appBinaries,
+                    appBundleID: appBundleID
+                )
+                all.append(Labelled(label: kind.label, text: text))
             }
         }
         guard !all.isEmpty else { return [] }
@@ -50,12 +120,19 @@ enum BaysylDiagnosticSummary {
         let dropped = all.count - kept.count
         if dropped > 0, let last = kept.popLast() {
             let suffix = " (+\(dropped) more in the saved file)"
-            kept.append(BaysylLaunchReport.truncate(last, limit: max(0, limit - suffix.count)) + suffix)
+            let text = BaysylLaunchReport.truncate(last.text, limit: max(0, limit - suffix.count)) + suffix
+            kept.append(Labelled(label: last.label, text: text))
         }
-        return kept.map { BaysylLaunchReport.truncate($0, limit: limit) }
+        return kept.map { Labelled(label: $0.label, text: BaysylLaunchReport.truncate($0.text, limit: limit)) }
     }
 
-    static func summary(of diagnostic: [String: Any], label: String, fallbackBuild: String) -> String {
+    static func summary(
+        of diagnostic: [String: Any],
+        label: String,
+        fallbackBuild: String,
+        appBinaries: Set<String> = bundledBinaryNames,
+        appBundleID: String? = Bundle.main.bundleIdentifier
+    ) -> String {
         let meta = diagnostic["diagnosticMetaData"] as? [String: Any] ?? [:]
         var parts: [String] = ["\(prefix) \(label)"]
 
@@ -65,6 +142,10 @@ enum BaysylDiagnosticSummary {
             parts.append("build \(version ?? "?") (\(build ?? "?"))")
         } else {
             parts.append("build \(fallbackBuild)")
+        }
+        // Which process the report is about, without ever printing the bundle identifier itself.
+        if let process = processLabel(reported: text(meta["bundleIdentifier"]), appBundleID: appBundleID) {
+            parts.append("process \(process)")
         }
 
         let numbered: [(String, String)] = [
@@ -87,33 +168,118 @@ enum BaysylDiagnosticSummary {
             if !name.isEmpty { parts.append("objc \(name)") }
         }
 
-        let stack = frames(from: diagnostic["callStackTree"], limit: frameLimit)
-        if !stack.isEmpty {
-            parts.append("frames: " + stack.joined(separator: " > "))
+        if let stack = frameText(from: diagnostic["callStackTree"], appBinaries: appBinaries) {
+            parts.append(stack)
         }
         return parts.joined(separator: "; ")
     }
 
-    /// The first `limit` frames of the attributed thread (or of the first thread), as "binaryName+offset",
-    /// in the order the report lists them: outermost JSON frame first, then down its first sub-frame.
-    static func frames(from callStackTree: Any?, limit: Int) -> [String] {
-        guard limit > 0,
-              let tree = callStackTree as? [String: Any],
+    /// "app" when the report names the app's own bundle, "extension <name>" for one of its extensions (the part
+    /// of the identifier after the app's), nil when it names neither or nothing.
+    static func processLabel(reported: String?, appBundleID: String?) -> String? {
+        guard let reported, let appBundleID, !reported.isEmpty, !appBundleID.isEmpty else { return nil }
+        if reported == appBundleID { return "app" }
+        guard reported.hasPrefix(appBundleID + ".") else { return nil }
+        let suffix = String(reported.dropFirst(appBundleID.count + 1).prefix(40))
+        return suffix.isEmpty ? nil : "extension \(suffix)"
+    }
+
+    // MARK: Call stack
+
+    private static func sampleCount(_ frame: [String: Any]) -> Double {
+        guard let value = (frame["sampleCount"] as? NSNumber)?.doubleValue, value.isFinite else { return 0 }
+        return value
+    }
+
+    /// The frame with the most samples; the first one when none says, or on a tie.
+    private static func heaviest(_ frames: Any?) -> [String: Any]? {
+        guard let list = frames as? [Any] else { return nil }
+        var best: [String: Any]?
+        var bestCount = -Double.infinity
+        for case let frame as [String: Any] in list {
+            let count = sampleCount(frame)
+            if best == nil || count > bestCount {
+                best = frame
+                bestCount = count
+            }
+        }
+        return best
+    }
+
+    /// The busiest path through the tree of the attributed thread (or, with none attributed, of the stack whose
+    /// root has the most samples), in the order the report nests it: outermost JSON frame first. At each level the
+    /// sub-frame with the most samples is followed. A loop, not recursion: a deep tree cannot overflow the stack.
+    static func path(from callStackTree: Any?, appBinaries: Set<String> = []) -> [Frame] {
+        guard let tree = callStackTree as? [String: Any],
               let stacks = tree["callStacks"] as? [Any] else { return [] }
         let candidates = stacks.compactMap { $0 as? [String: Any] }
-        guard let stack = candidates.first(where: { ($0["threadAttributed"] as? Bool) == true }) ?? candidates.first
-        else { return [] }
+        var chosen = candidates.first(where: { ($0["threadAttributed"] as? Bool) == true })
+        if chosen == nil {
+            var bestCount = -Double.infinity
+            for candidate in candidates {
+                let count = heaviest(candidate["callStackRootFrames"]).map(sampleCount) ?? -1
+                if chosen == nil || count > bestCount {
+                    chosen = candidate
+                    bestCount = count
+                }
+            }
+        }
+        guard let stack = chosen else { return [] }
 
-        var result: [String] = []
-        var current = (stack["callStackRootFrames"] as? [Any])?.first as? [String: Any]
-        // A loop, not recursion: a deep tree cannot overflow the stack.
-        while let frame = current, result.count < limit {
+        var result: [Frame] = []
+        var current = heaviest(stack["callStackRootFrames"])
+        while let frame = current, result.count < maxDepth {
             let name = text(frame["binaryName"]) ?? "?"
             let offset = text(frame["offsetIntoBinaryTextSegment"]) ?? "?"
-            result.append("\(name)+\(offset)")
-            current = (frame["subFrames"] as? [Any])?.first as? [String: Any]
+            result.append(Frame(name: name, offset: offset, isApp: appBinaries.contains(name)))
+            current = heaviest(frame["subFrames"])
         }
         return result
+    }
+
+    /// The first `limit` frames of the busiest path, as "binaryName+offset", outermost JSON frame first.
+    static func frames(from callStackTree: Any?, limit: Int) -> [String] {
+        guard limit > 0 else { return [] }
+        return path(from: callStackTree).prefix(limit).map(\.text)
+    }
+
+    /// The stack part of a Note, nil when the report has no stack.
+    ///
+    /// With frames from the app's own binaries on the busiest path, those come first: up to `appFrameLimit`,
+    /// deepest first, then up to `systemFrameLimit` system frames. In a sampled tree (CPU, hang, disk) the report
+    /// nests callers outside callees, so the deepest system frames are where the time went. A per-thread tree
+    /// (crash) is a single chain whose direction is not relied on: both of its ends are kept.
+    /// With no app frame: the whole path when short, otherwise its first `outerFrameLimit` frames and its deepest.
+    static func frameText(from callStackTree: Any?, appBinaries: Set<String>) -> String? {
+        let all = path(from: callStackTree, appBinaries: appBinaries)
+        guard !all.isEmpty else { return nil }
+        let separator = " > "
+        let gap = "..."
+
+        let app = all.filter(\.isApp)
+        guard !app.isEmpty else {
+            if all.count <= frameLimit { return "frames: " + all.map(\.text).joined(separator: separator) }
+            let outer = all.prefix(outerFrameLimit).map(\.text)
+            let deepest = all.suffix(frameLimit - outerFrameLimit).map(\.text)
+            return "frames: " + (outer + [gap] + deepest).joined(separator: separator)
+        }
+
+        var parts = ["app (deepest first): " + app.suffix(appFrameLimit).reversed().map(\.text).joined(separator: separator)]
+        let system = all.filter { !$0.isApp }
+        let perThread = ((callStackTree as? [String: Any])?["callStackPerThread"] as? Bool) == true
+        if system.isEmpty {
+            // nothing to add
+        } else if !perThread {
+            let top = system.suffix(systemFrameLimit).reversed().map(\.text)
+            parts.append("system (deepest first): " + top.joined(separator: separator))
+        } else if system.count <= systemFrameLimit {
+            parts.append("system: " + system.map(\.text).joined(separator: separator))
+        } else {
+            let half = systemFrameLimit / 2
+            let ends = system.prefix(half).map(\.text) + [gap] + system.suffix(systemFrameLimit - half).map(\.text)
+            parts.append("system (both ends): " + ends.joined(separator: separator))
+        }
+        return parts.joined(separator: "; ")
     }
 
     /// Daily app-exit counts from an `MXMetricPayload` JSON: one summary naming every abnormal exit count
@@ -223,6 +389,42 @@ enum BaysylDiagnosticsStore {
     }
 }
 
+// MARK: - How often one kind of note is sent
+
+/// CPU-exception reports can arrive every few minutes for hours. Every payload is still saved to a file; the
+/// Note is sent at most once per `interval`, and says how many were held back since the previous one.
+struct BaysylDiagnosticNoteLimiter {
+    static let interval: TimeInterval = 60 * 60
+    static let lastSentKey = "bryan.diagnostics.cpuNoteLastSent"
+    static let heldBackKey = "bryan.diagnostics.cpuNotesHeldBack"
+
+    /// Pure: may a note go out now, given when the last one did?
+    static func allows(lastSent: Date?, now: Date, interval: TimeInterval = interval) -> Bool {
+        guard let lastSent else { return true }
+        let elapsed = now.timeIntervalSince(lastSent)
+        // A clock that went backwards must not block notes for good.
+        return elapsed < 0 || elapsed >= interval
+    }
+
+    let defaults: UserDefaults
+
+    /// The text to send, or nil when this one is held back. Not thread-safe on its own; the caller serialises.
+    func admit(_ text: String, now: Date, limit: Int = BaysylLaunchReport.noteLimit) -> String? {
+        let stored = defaults.object(forKey: Self.lastSentKey) as? Double
+        let lastSent = stored.map { Date(timeIntervalSince1970: $0) }
+        let heldBack = max(0, defaults.integer(forKey: Self.heldBackKey))
+        guard Self.allows(lastSent: lastSent, now: now) else {
+            defaults.set(heldBack + 1, forKey: Self.heldBackKey)
+            return nil
+        }
+        defaults.set(now.timeIntervalSince1970, forKey: Self.lastSentKey)
+        defaults.set(0, forKey: Self.heldBackKey)
+        guard heldBack > 0 else { return text }
+        let suffix = " (+\(heldBack) more since the last note, in the saved files)"
+        return BaysylLaunchReport.truncate(text, limit: max(0, limit - suffix.count)) + suffix
+    }
+}
+
 // MARK: - MetricKit subscriber
 
 final class BaysylDiagnosticsSubscriber: NSObject, MXMetricManagerSubscriber {
@@ -248,8 +450,14 @@ final class BaysylDiagnosticsSubscriber: NSObject, MXMetricManagerSubscriber {
         for (index, payload) in payloads.enumerated() {
             let json = payload.jsonRepresentation()
             BaysylDiagnosticsStore.save(json, date: now, index: index)
-            for summary in BaysylDiagnosticSummary.summaries(payloadJSON: json, fallbackBuild: build) {
-                BaysylNoteOutbox.shared.enqueue(summary, at: now)
+            for summary in BaysylDiagnosticSummary.labelledSummaries(payloadJSON: json, fallbackBuild: build) {
+                var text: String? = summary.text
+                if summary.label == BaysylDiagnosticSummary.cpuLabel {
+                    lock.lock()
+                    text = BaysylDiagnosticNoteLimiter(defaults: .standard).admit(summary.text, now: now)
+                    lock.unlock()
+                }
+                if let text { BaysylNoteOutbox.shared.enqueue(text, at: now) }
             }
         }
         BaysylStartup.flushOutbox()

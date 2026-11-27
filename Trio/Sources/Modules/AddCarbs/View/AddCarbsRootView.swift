@@ -62,7 +62,11 @@ extension AddCarbs {
                     VStack {
                         HStack {
                             Text("Note").foregroundColor(.secondary)
-                            TextFieldWithToolBarString(text: $state.note, placeholder: "", maxLength: 25)
+                            TextFieldWithToolBarString(
+                                text: $state.note,
+                                placeholder: "",
+                                maxLength: MealPresetQuickAdd.noteMaxLength
+                            )
                             if isFocused {
                                 Button { isFocused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
                                     .controlSize(.mini)

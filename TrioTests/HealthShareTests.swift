@@ -36,6 +36,10 @@ import Testing
         private(set) var sleepQueries = 0
         private(set) var workoutQueries = 0
         private(set) var lastWindowStart: Date?
+        var dayList: [HealthShareDay] = []
+        var daysShouldThrow = false
+        private(set) var dayQueries = 0
+        private(set) var lastDayStart: Date?
 
         var totalCalls: Int { authorizationRequests + sleepQueries + workoutQueries }
 
@@ -55,6 +59,13 @@ import Testing
             workoutQueries += 1
             if shouldThrow { throw TestError("Health unavailable") }
             return workoutList
+        }
+
+        func days(from: Date, to _: Date) async throws -> [HealthShareDay] {
+            dayQueries += 1
+            lastDayStart = from
+            if shouldThrow || daysShouldThrow { throw TestError("Health unavailable") }
+            return dayList
         }
     }
 
@@ -77,9 +88,11 @@ import Testing
         var lastSuccess: Date?
         var lastAttempt: Date?
         var uploadedKeys: [String: Date] = [:]
+        var accessVersion: Int
 
-        init(isEnabled: Bool) {
+        init(isEnabled: Bool, accessVersion: Int = HealthShareService.accessVersion) {
             self.isEnabled = isEnabled
+            self.accessVersion = accessVersion
         }
     }
 
@@ -198,6 +211,132 @@ import Testing
             km: 1.61,
             kcal: 118
         ))
+    }
+
+    @Test("A workout with heart rate carries its average and maximum") func workoutWithHeartRate() {
+        var run = Self.workout("2026-01-05T17:00:00Z", "2026-01-05T17:11:00Z", km: 1.609, kcal: 117.6)
+        run.averageHeartRate = 151.6
+        run.maximumHeartRate = 171.2
+        let note = HealthShareNote.text(for: run)
+        #expect(
+            note ==
+                "Health workout: type=Running start=2026-01-05T17:00:00Z end=2026-01-05T17:11:00Z min=11 km=1.61 kcal=118"
+                + " hrAvg=152 hrMax=171"
+        )
+        // The older fields still parse; the extra ones are ignored by this parser.
+        #expect(HealthShareNote.parse(note) == .workout(
+            type: "Running", start: run.start, end: run.end, minutes: 11, km: 1.61, kcal: 118
+        ))
+    }
+
+    // MARK: - Day summaries (heart rate, variability, steps, energy)
+
+    private static func day(
+        _ date: String = "2026-01-04",
+        resting: Int? = 52,
+        hours: [HealthShareHourHeart] = [
+            HealthShareHourHeart(hour: 1, min: 47, avg: 50, max: 58),
+            HealthShareHourHeart(hour: 0, min: 48, avg: 52, max: 60)
+        ]
+    ) -> HealthShareDay {
+        let start = t("\(date)T08:00:00Z")
+        return HealthShareDay(
+            date: date,
+            start: start,
+            end: start.addingTimeInterval(24 * 3600),
+            restingHeartRate: resting,
+            hrvMs: resting == nil ? nil : 48,
+            steps: resting == nil ? nil : 8421,
+            activeKcal: resting == nil ? nil : 612,
+            hours: hours
+        )
+    }
+
+    @Test("Day note text is exact, hours in order, and parses back") func dayNoteRoundTrip() {
+        let day = Self.day()
+        let note = HealthShareNote.text(for: day)
+        #expect(
+            note ==
+                "Health day: date=2026-01-04 start=2026-01-04T08:00:00Z end=2026-01-05T08:00:00Z restingHR=52 hrv=48"
+                + " steps=8421 kcal=612 hr=00:48/52/60,01:47/50/58"
+        )
+        var sorted = day
+        sorted.hours = day.hours.sorted { $0.hour < $1.hour }
+        #expect(HealthShareNote.parse(note) == .day(sorted))
+    }
+
+    @Test("A day with only some values leaves the rest out; an empty day is never sent") func partialAndEmptyDays() {
+        let partial = Self.day(resting: nil)
+        #expect(
+            HealthShareNote.text(for: partial) ==
+                "Health day: date=2026-01-04 start=2026-01-04T08:00:00Z end=2026-01-05T08:00:00Z hr=00:48/52/60,01:47/50/58"
+        )
+        let empty = Self.day(resting: nil, hours: [])
+        #expect(empty.isEmpty)
+        let records = HealthShareService.pendingRecords(
+            samples: [], workouts: [], days: [empty, partial],
+            windowStart: Self.now.addingTimeInterval(-7 * 24 * 3600), now: Self.now, uploadedKeys: [:]
+        )
+        #expect(records.map(\.note) == [HealthShareNote.text(for: partial)])
+    }
+
+    @Test("A day still in progress waits; a changed day is sent again, an unchanged one is not") func dayTimingAndDedupe() {
+        let finished = Self.day("2026-01-04")
+        let today = Self.day("2026-01-05")
+        let window = Self.now.addingTimeInterval(-7 * 24 * 3600)
+        let first = HealthShareService.pendingRecords(
+            samples: [], workouts: [], days: [finished, today], windowStart: window, now: Self.now, uploadedKeys: [:]
+        )
+        #expect(first.map(\.note) == [HealthShareNote.text(for: finished)])
+        #expect(first.first?.createdAt == finished.end)
+
+        let sent = [first[0].key: first[0].createdAt]
+        let again = HealthShareService.pendingRecords(
+            samples: [], workouts: [], days: [finished], windowStart: window, now: Self.now, uploadedKeys: sent
+        )
+        #expect(again.isEmpty)
+
+        var corrected = finished
+        corrected.steps = 9000
+        let resent = HealthShareService.pendingRecords(
+            samples: [], workouts: [], days: [corrected], windowStart: window, now: Self.now, uploadedKeys: sent
+        )
+        #expect(resent.count == 1)
+        #expect(HealthShareRecord.checksum("abc") == HealthShareRecord.checksum("abc"))
+        #expect(HealthShareRecord.checksum("abc") != HealthShareRecord.checksum("abd"))
+    }
+
+    @Test("A build with new Health types asks once from the foreground and back-fills 60 days") func newTypesBackfill() async {
+        let reader = FakeReader()
+        reader.dayList = [Self.day("2026-01-03"), Self.day("2026-01-04")]
+        let uploader = FakeUploader()
+        let store = FakeStore(isEnabled: true, accessVersion: 1)
+        let service = HealthShareService(reader: reader, uploader: uploader, store: store)
+
+        #expect(await service.foregroundTick(now: Self.now) == .uploaded(2))
+        #expect(reader.authorizationRequests == 1)
+        #expect(reader.lastDayStart == Self.now.addingTimeInterval(-60 * 24 * 3600))
+        #expect(store.accessVersion == HealthShareService.accessVersion)
+
+        // Later syncs neither ask again nor look back 60 days.
+        #expect(await service.foregroundTick(now: Self.now.addingTimeInterval(4 * 3600)) == .nothingNew)
+        #expect(reader.authorizationRequests == 1)
+        #expect(reader.lastDayStart == reader.lastWindowStart)
+    }
+
+    @Test("No day data yet: the back-fill stays pending, and sleep and workouts still go") func dayReadNeverBlocks() async {
+        let reader = FakeReader()
+        reader.samples = Self.night
+        reader.daysShouldThrow = true
+        let uploader = FakeUploader()
+        let store = FakeStore(isEnabled: true, accessVersion: 1)
+        let service = HealthShareService(reader: reader, uploader: uploader, store: store)
+
+        #expect(await service.foregroundTick(now: Self.now) == .uploaded(1))
+        #expect(uploader.uploaded.map(\.note) == [
+            "Health sleep: start=2026-01-04T23:00:00Z end=2026-01-05T06:00:00Z asleepMin=400"
+        ])
+        #expect(store.accessVersion == 1)
     }
 
     @Test("A workout with no distance or energy leaves those fields out") func workoutWithoutDistance() {

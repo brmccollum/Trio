@@ -1,6 +1,8 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Trio
+import UIKit
 
 @Suite("Preset Quick Buttons") struct PresetQuickButtonsTests {
     // MARK: - Icon and label
@@ -60,7 +62,7 @@ import Testing
         #expect(MealPresetQuickAdd.noteTag(for: "bp bar") == "bp bar")
         #expect(MealPresetQuickAdd.noteTag(for: "🥤") == "🥤")
         #expect(MealPresetQuickAdd.noteTag(for: nil) == "")
-        let long = String(repeating: "a", count: 40)
+        let long = String(repeating: "a", count: MealPresetQuickAdd.noteMaxLength + 15)
         #expect(MealPresetQuickAdd.noteTag(for: long).count == MealPresetQuickAdd.noteMaxLength)
     }
 
@@ -248,8 +250,9 @@ import Testing
     }
 
     @Test("Composed note is cut to the Note field length") func composeNoteTruncates() {
-        let note = MealPresetQuickAdd.composeNote(names: ["keto fuel", "perfect bar", "bp bar"])
-        #expect(note == "keto fuel + perfect bar +")
+        let names = ["keto fuel", "perfect bar", "bp bar", "granola", "fruit snacks", "kombucha", "cheese curds", "cider"]
+        let note = MealPresetQuickAdd.composeNote(names: names)
+        #expect(note.hasPrefix("keto fuel + perfect bar + bp bar"))
         #expect(note.count == MealPresetQuickAdd.noteMaxLength)
     }
 
@@ -273,5 +276,55 @@ import Testing
         state.note = "bp bar x2 + keto, late"
         state.quickAddPreset(key: "b", name: "🥤 keto fuel", carbs: 7, fat: 40, protein: 30)
         #expect(state.note == "bp bar x2 + keto, late")
+    }
+
+    // MARK: - Note field (the text field behind "Note...")
+
+    @Test("A long insertion into the note field keeps what fits instead of being refused whole")
+    @MainActor func noteFieldLongInsertion() {
+        var stored = "keto fuel"
+        let binding = Binding<String>(get: { stored }, set: { stored = $0 })
+        let view = TextFieldWithToolBarString(text: binding, placeholder: "", maxLength: 25)
+        let coordinator = TextFieldWithToolBarString.Coordinator(view, maxLength: view.maxLength)
+        let field = UITextField()
+        field.text = stored
+
+        // Dictation or a paste delivers a whole phrase at once.
+        let end = NSRange(location: (stored as NSString).length, length: 0)
+        let phrase = " plus two gluten free cookies"
+        let accepted = coordinator.textField(field, shouldChangeCharactersIn: end, replacementString: phrase)
+        #expect(!accepted) // the field was filled by hand, up to the limit
+        #expect(field.text == "keto fuel plus two gluten")
+        #expect(stored == "keto fuel plus two gluten")
+        #expect((stored as NSString).length == 25)
+
+        // One more key at the limit is refused and changes nothing, as before.
+        let atEnd = NSRange(location: (stored as NSString).length, length: 0)
+        #expect(!coordinator.textField(field, shouldChangeCharactersIn: atEnd, replacementString: "x"))
+        #expect(stored == "keto fuel plus two gluten")
+
+        // An edit within the limit is accepted; the binding follows the field when the edit lands.
+        let lastWord = NSRange(location: 19, length: 6)
+        #expect(coordinator.textField(field, shouldChangeCharactersIn: lastWord, replacementString: "GF"))
+        field.text = "keto fuel plus two GF"
+        coordinator.textFieldDidEndEditing(field)
+        #expect(stored == "keto fuel plus two GF")
+
+        // Text that arrived without the delegate being asked is cut to the limit when it is taken over.
+        field.text = String(repeating: "a", count: 40)
+        coordinator.textFieldDidEndEditing(field)
+        #expect(stored == String(repeating: "a", count: 25))
+        #expect(field.text == stored)
+    }
+
+    @Test("Cutting to a length never splits a character") func noteFieldPrefix() {
+        typealias Coordinator = TextFieldWithToolBarString.Coordinator
+        #expect(Coordinator.prefix(of: "abcdef", fittingUTF16: 3) == "abc")
+        #expect(Coordinator.prefix(of: "abc", fittingUTF16: 10) == "abc")
+        #expect(Coordinator.prefix(of: "abc", fittingUTF16: 0) == "")
+        #expect(Coordinator.prefix(of: "abc", fittingUTF16: -2) == "")
+        // "🥤" is two UTF-16 units: it fits whole or not at all.
+        #expect(Coordinator.prefix(of: "a🥤b", fittingUTF16: 2) == "a")
+        #expect(Coordinator.prefix(of: "a🥤b", fittingUTF16: 3) == "a🥤")
     }
 }
