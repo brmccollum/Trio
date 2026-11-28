@@ -73,4 +73,17 @@ enum WatchMessageKeys {
     static let todayPercentLow = "todayPercentLow"
     static let todayHighestGlucose = "todayHighestGlucose"
     static let todayLowestGlucose = "todayLowestGlucose"
+
+    // Baysyl brief for the watch's Baysyl page (display only). `baysylBrief` holds a dictionary of the keys
+    // below; an empty dictionary means "no brief" and clears the page.
+    static let baysylBrief = "baysylBrief"
+    static let baysylBriefHeadline = "headline"
+    static let baysylBriefItems = "items"
+    static let baysylBriefItemTitle = "title"
+    static let baysylBriefItemPercent = "percent"
+    static let baysylBriefItemDetail = "detail"
+    static let baysylBriefTestTitle = "testTitle"
+    static let baysylBriefTestPredict = "testPredict"
+    static let baysylBriefToday = "today"
+    static let baysylBriefUpdated = "updated"
 }

@@ -65,6 +65,9 @@ import WatchConnectivity
     var todayHighestGlucose: String?
     var todayLowestGlucose: String?
 
+    /// The Baysyl brief for the Baysyl page, sent by the phone. Display only. `nil` shows "No brief yet".
+    var baysylBrief: WatchBaysylBrief?
+
     // Acknowlegement handling
     var showCommsAnimation: Bool = false
     var showAcknowledgmentBanner: Bool = false
@@ -647,6 +650,12 @@ import WatchConnectivity
 
         if let todayLowestGlucose = message[WatchMessageKeys.todayLowestGlucose] as? String {
             self.todayLowestGlucose = todayLowestGlucose
+        }
+
+        // Baysyl brief (display only). An absent key leaves the old one alone; an empty dictionary clears it.
+        if let briefData = message[WatchMessageKeys.baysylBrief] as? [String: Any] {
+            let brief = WatchBaysylBrief(dictionary: briefData)
+            if brief != baysylBrief { baysylBrief = brief }
         }
     }
 }

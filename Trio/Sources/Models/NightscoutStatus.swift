@@ -75,6 +75,9 @@ struct NightscoutTrioSettingsSnapshot: JSON {
     let appSettings: TrioSettings
     let appVersion: String
     let branchAndSha: String
+    /// Private-build settings kept outside Trio's own preferences and app settings: safe mode, the add-on
+    /// switches, the appearance. Booleans only. Part of the fingerprint, so a change re-sends the profile.
+    var baysyl: BaysylAddOnState? = nil
 }
 
 struct NightscoutPresetOverride: JSON {

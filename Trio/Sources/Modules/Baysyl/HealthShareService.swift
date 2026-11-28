@@ -55,6 +55,99 @@ protocol HealthShareStateStoring: AnyObject {
     var dayCursor: Date? { get set }
 }
 
+// MARK: - Status (reporting only)
+
+/// What the last Health sync did, kept so the phone can say why nothing arrived. Reported in the `baysyl`
+/// object of the settings snapshot, in the launch report and under the switches. No health values in it.
+struct HealthShareStatus: Codable, Equatable {
+    static let ok = "ok"
+    /// "Heart rate and activity" is on but the Health sheet for those types has never been answered.
+    static let noPermissionRequested = "no permission requested"
+    /// Access was answered, yet Health returned nothing for the days asked for. Health never says "denied":
+    /// this is what a denied read looks like.
+    static let noData = "no data"
+    static let error = "error"
+    static let safeMode = "safe mode"
+    static let notReady = "not ready"
+    static let never = "never run"
+
+    /// When the last sync was attempted (or last refused, for safe mode and not ready).
+    var lastAttempt: Date?
+    /// One of the constants above.
+    var result: String = HealthShareStatus.never
+    /// A few words more: "uploaded 3", "nothing new", "upload failed", ...
+    var detail: String = ""
+    /// Notes read from Health that are still waiting because the upload failed.
+    var queued: Int = 0
+
+    /// What the day summaries did in one sync.
+    enum Days: Equatable {
+        case off
+        case noPermissionRequested
+        case readFailed
+        /// Number of days with any data in the window that was read.
+        case read(Int)
+    }
+
+    /// The status of a sync that got as far as reading Health. Pure.
+    static func after(outcome: HealthShareService.Outcome, days: Days, queued: Int, now: Date) -> HealthShareStatus {
+        var status = HealthShareStatus(lastAttempt: now)
+        switch outcome {
+        case .failed:
+            status.result = error
+            status.detail = queued > 0 ? "upload failed" : "health read failed"
+            status.queued = queued
+            return status
+        case .disabled,
+             .notReady,
+             .throttled:
+            status.result = notReady
+            status.detail = HealthShareService.label(outcome)
+            return status
+        case .nothingNew,
+             .uploaded:
+            status.detail = HealthShareService.label(outcome)
+        }
+        switch days {
+        case .off:
+            status.result = ok
+        case .noPermissionRequested:
+            status.result = noPermissionRequested
+            status.detail += "; heart rate and activity not read"
+        case .readFailed:
+            status.result = error
+            status.detail += "; day read failed"
+        case let .read(count):
+            status.result = count == 0 ? noData : ok
+            status.detail += "; days with data \(count)"
+        }
+        return status
+    }
+
+    /// "ok, uploaded 1; days with data 3, queued 0, 2026-11-28T12:35:00Z".
+    var line: String {
+        let time = lastAttempt.map(HealthShareNote.iso) ?? "never"
+        return "\(result)\(detail.isEmpty ? "" : ", " + detail), queued \(queued), \(time)"
+    }
+}
+
+/// The last status, in UserDefaults. State, not a setting.
+enum HealthShareStatusStore {
+    static let key = "bryan.healthShare.status"
+
+    static func load(from defaults: UserDefaults = .standard) -> HealthShareStatus {
+        guard let data = defaults.data(forKey: key),
+              let status = try? JSONDecoder().decode(HealthShareStatus.self, from: data) else { return HealthShareStatus() }
+        return status
+    }
+
+    static func save(_ status: HealthShareStatus, to defaults: UserDefaults = .standard) {
+        var capped = status
+        capped.detail = String(capped.detail.prefix(120))
+        if let data = try? JSONEncoder().encode(capped) { defaults.set(data, forKey: key) }
+    }
+}
+
 // MARK: - Service
 
 actor HealthShareService {
@@ -92,7 +185,8 @@ actor HealthShareService {
         uploader: NightscoutHealthShareUploader(),
         store: HealthShareDefaultsStore(),
         isAppReady: { await HealthShareService.appIsActiveAndUnlocked() },
-        breadcrumb: { BaysylLaunchGuard.shared.note($0) }
+        breadcrumb: { BaysylLaunchGuard.shared.note($0) },
+        report: { HealthShareStatusStore.save($0) }
     )
 
     private let reader: HealthShareReading
@@ -100,7 +194,11 @@ actor HealthShareService {
     private let store: HealthShareStateStoring
     private let isAppReady: @Sendable() async -> Bool
     private let breadcrumb: @Sendable(String) -> Void
+    private let report: @Sendable(HealthShareStatus) -> Void
     private let calendar: Calendar
+    /// Set by `readAndUpload` for the status of the sync in progress.
+    private var lastDays = HealthShareStatus.Days.off
+    private var lastQueued = 0
 
     /// - Parameters:
     ///   - isAppReady: true only while the app is active and protected data can be read. Health is not touched
@@ -113,6 +211,7 @@ actor HealthShareService {
         store: HealthShareStateStoring,
         isAppReady: @escaping @Sendable() async -> Bool = { true },
         breadcrumb: @escaping @Sendable(String) -> Void = { _ in },
+        report: @escaping @Sendable(HealthShareStatus) -> Void = { _ in },
         calendar: Calendar = .current
     ) {
         self.reader = reader
@@ -120,6 +219,7 @@ actor HealthShareService {
         self.store = store
         self.isAppReady = isAppReady
         self.breadcrumb = breadcrumb
+        self.report = report
         self.calendar = calendar
     }
 
@@ -134,7 +234,15 @@ actor HealthShareService {
     /// Fire-and-forget entry point for the app becoming active. Never blocks the caller.
     nonisolated static func appDidBecomeActive() {
         // Safe mode (launch guard) turns every add-on off for the run.
-        guard BaysylAddOns.healthShare else { return }
+        guard BaysylAddOns.healthShare else {
+            // Said out loud, so "nothing arrived" can be told apart from "never tried".
+            if UserDefaults.standard.bool(forKey: HealthShareDefaultsStore.enabledKey) {
+                HealthShareStatusStore.save(
+                    HealthShareStatus(lastAttempt: Date(), result: HealthShareStatus.safeMode, detail: "add-ons are off")
+                )
+            }
+            return
+        }
         if UserDefaults.standard.bool(forKey: HealthShareDefaultsStore.enabledKey) {
             BaysylLaunchGuard.shared.mark(.healthTick)
         }
@@ -166,7 +274,24 @@ actor HealthShareService {
         return await sync(now: now, force: true)
     }
 
-    /// Never asks for Health permission: that happens only in the two `...ByUser` calls above.
+    /// Called when the user taps "Allow Health access" in Settings: asks for whatever the switches that are on
+    /// need, then syncs once. For a switch that was turned on at a moment the sheet could not be shown (safe
+    /// mode, an earlier build): without this the day types were never asked for and never read.
+    @discardableResult func accessRequestedByUser(now: Date = Date()) async -> Outcome {
+        guard store.isEnabled else { return .disabled }
+        guard await isAppReady() else { return .notReady }
+        _ = await reader.requestReadAuthorization(includingDays: store.isDaysEnabled)
+        return await sync(now: now, force: true)
+    }
+
+    /// True while "Heart rate and activity" is on but Health has never been asked for those types. Asks nothing.
+    func needsAccessRequest() async -> Bool {
+        guard store.isEnabled, store.isDaysEnabled else { return false }
+        let asked = await reader.dayAccessWasRequested()
+        return !asked
+    }
+
+    /// Never asks for Health permission: that happens only in the `...ByUser` calls above.
     private func sync(now: Date, force: Bool) async -> Outcome {
         guard store.isEnabled else { return .disabled }
         if !force {
@@ -180,14 +305,24 @@ actor HealthShareService {
                 else { return .throttled }
             }
         }
-        guard uploader.canUpload else { return .notReady }
+        guard uploader.canUpload else {
+            report(HealthShareStatus(
+                lastAttempt: now, result: HealthShareStatus.notReady, detail: "Nightscout upload is off"
+            ))
+            return .notReady
+        }
         // Health is unreadable while the device is locked, and a sync has no business in the background.
         guard await isAppReady() else { return .notReady }
         store.lastAttempt = now
 
         breadcrumb("health sync start")
+        lastDays = .off
+        lastQueued = 0
         let outcome = await readAndUpload(now: now)
-        breadcrumb("health sync end: \(Self.label(outcome))")
+        let status = HealthShareStatus.after(outcome: outcome, days: lastDays, queued: lastQueued, now: now)
+        report(status)
+        // "uploaded 1", "nothing new; heart rate and activity not read", "failed", ...
+        breadcrumb("health sync end: \(outcome == .failed ? Self.label(outcome) : status.detail)")
         return outcome
     }
 
@@ -220,12 +355,21 @@ actor HealthShareService {
         // failed read is simply no days, and the cursor stays where it was.
         var days: [HealthShareDay] = []
         var nextDayCursor: Date?
-        if store.isDaysEnabled, await reader.dayAccessWasRequested(), await isAppReady() {
-            let window = Self.dayWindow(cursor: store.dayCursor, now: now, calendar: calendar)
-            if let read = try? await reader.days(from: window.start, to: window.end) {
-                let batch = Self.dayBatch(read, window: window, now: now)
-                days = batch.days
-                nextDayCursor = batch.cursor
+        if store.isDaysEnabled {
+            if await reader.dayAccessWasRequested() {
+                if await isAppReady() {
+                    let window = Self.dayWindow(cursor: store.dayCursor, now: now, calendar: calendar)
+                    if let read = try? await reader.days(from: window.start, to: window.end) {
+                        let batch = Self.dayBatch(read, window: window, now: now)
+                        days = batch.days
+                        nextDayCursor = batch.cursor
+                        lastDays = .read(read.filter { !$0.isEmpty }.count)
+                    } else {
+                        lastDays = .readFailed
+                    }
+                }
+            } else {
+                lastDays = .noPermissionRequested
             }
         }
 
@@ -248,6 +392,7 @@ actor HealthShareService {
         }
         guard await uploader.upload(pending) else {
             debug(.service, "HealthShare: upload failed; will retry later")
+            lastQueued = pending.count
             return .failed
         }
 

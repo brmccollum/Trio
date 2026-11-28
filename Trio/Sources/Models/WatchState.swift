@@ -45,6 +45,11 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
     var todayHighestGlucose: String?
     var todayLowestGlucose: String?
 
+    /// The Baysyl brief for the watch's Baysyl page. Display only. nil means "no brief".
+    var baysylBrief: BaysylWatchBrief?
+    /// True when this state should tell the watch about the brief at all (watch extras on).
+    var sendsBaysylBrief: Bool = false
+
     /// True for the bare `WatchState(date:)` that `setupWatchState` returns when it could not build a
     /// real state. A real state always carries `lastLoopTime`. Placeholders must never reach the watch.
     var isPlaceholder: Bool {
@@ -85,7 +90,9 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
             lhs.todayAverageGlucose == rhs.todayAverageGlucose &&
             lhs.todayPercentLow == rhs.todayPercentLow &&
             lhs.todayHighestGlucose == rhs.todayHighestGlucose &&
-            lhs.todayLowestGlucose == rhs.todayLowestGlucose
+            lhs.todayLowestGlucose == rhs.todayLowestGlucose &&
+            lhs.baysylBrief == rhs.baysylBrief &&
+            lhs.sendsBaysylBrief == rhs.sendsBaysylBrief
     }
 
     func hash(into hasher: inout Hasher) {
@@ -124,6 +131,8 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
         hasher.combine(todayPercentLow)
         hasher.combine(todayHighestGlucose)
         hasher.combine(todayLowestGlucose)
+        hasher.combine(baysylBrief)
+        hasher.combine(sendsBaysylBrief)
     }
 }
 

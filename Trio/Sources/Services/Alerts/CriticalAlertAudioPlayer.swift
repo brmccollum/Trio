@@ -70,6 +70,8 @@ final class CriticalAlertAudioPlayer {
                 return
             }
             player = p
+            // Private build, read-only flag: lets the optional spoken alerts stay out of the alarm's audio session.
+            BaysylAlarmAudio.set(true)
             os_log("Started critical-alert audio playback (duration=%{public}.2fs)", log: log, type: .info, p.duration)
         } catch {
             os_log("Failed to start audio playback: %{public}@", log: log, type: .error, String(describing: error))
@@ -88,6 +90,7 @@ final class CriticalAlertAudioPlayer {
         guard player != nil || vibrationTimer != nil else { return }
         player?.stop()
         player = nil
+        BaysylAlarmAudio.set(false)
         vibrationTimer?.invalidate()
         vibrationTimer = nil
         volumeBooster.restore()

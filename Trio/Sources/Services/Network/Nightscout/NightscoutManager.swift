@@ -550,7 +550,8 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
             pumpSettings: settingsManager.pumpSettings,
             appSettings: settingsManager.settings,
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
-            branchAndSha: BuildDetails.shared.branchAndSha
+            branchAndSha: BuildDetails.shared.branchAndSha,
+            baysyl: BaysylAddOnState.current
         )
     }
 
@@ -1634,7 +1635,8 @@ extension NightscoutTrioSettingsSnapshot {
             pumpSettings: pumpSettings,
             appSettings: appSettings,
             appVersion: appVersion,
-            branchAndSha: branchAndSha
+            branchAndSha: branchAndSha,
+            baysyl: baysyl?.fingerprintForm
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

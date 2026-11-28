@@ -114,16 +114,56 @@ struct TrioMainWatchView: View {
                     isDated: isWatchStateDated || isSessionUnreachable
                 )
                 .tag(2)
+
+                // Page 4: the Baysyl brief (display only). A scroll view: the vertical-page tab view scrolls it
+                // to its end with the Digital Crown before moving to another page.
+                BaysylBriefWatchView(
+                    brief: state.baysylBrief,
+                    offworldTheme: state.offworldTheme
+                )
+                .tag(3)
             }
             .onAppear {
                 /// Hard reset variables when main view appears
                 /// Reset `bolusAmount` and `recommendedBolus` to ensure no stale / old value is set when user opens bolus input or meal combo the next time.
                 state.bolusAmount = 0
                 state.recommendedBolus = 0
+                #if DEBUG && targetEnvironment(simulator)
+                    // Screenshot aid, simulator debug builds only: `-BaysylSampleBrief 1 -BaysylStartPage 3`.
+                    let arguments = ProcessInfo.processInfo.arguments
+                    if arguments.contains("-BaysylSampleBrief") {
+                        state.baysylBrief = WatchBaysylBrief(dictionary: [
+                            WatchMessageKeys.baysylBriefHeadline: "SAMPLE: flat night, one low after the paddle",
+                            WatchMessageKeys.baysylBriefToday: "Sample today line.",
+                            WatchMessageKeys.baysylBriefItems: [
+                                [
+                                    WatchMessageKeys.baysylBriefItemTitle: "Sample item one",
+                                    WatchMessageKeys.baysylBriefItemPercent: 75,
+                                    WatchMessageKeys.baysylBriefItemDetail: "Made-up text to show how a detail line wraps."
+                                ],
+                                [
+                                    WatchMessageKeys.baysylBriefItemTitle: "Sample item two",
+                                    WatchMessageKeys.baysylBriefItemPercent: 55,
+                                    WatchMessageKeys.baysylBriefItemDetail: "A second made-up line."
+                                ]
+                            ],
+                            WatchMessageKeys.baysylBriefTestTitle: "Sample test",
+                            WatchMessageKeys.baysylBriefTestPredict: "Made-up prediction: peak 150 at 110 minutes.",
+                            WatchMessageKeys.baysylBriefUpdated: 1_795_875_600.0
+                        ])
+                    }
+                    if let index = arguments.firstIndex(of: "-BaysylStartPage"), index + 1 < arguments.count,
+                       let page = Int(arguments[index + 1]), (0 ... 3).contains(page)
+                    {
+                        currentPage = page
+                    }
+                #endif
             }
             .background(trioBackgroundColor)
+            // No `digitalCrownRotation` binding on the tab view (stock Trio had one, 0 through 2): on watchOS 10
+            // and later the vertical-page style turns pages with the Digital Crown by itself, and only without a
+            // competing binding does it hand the crown to a page's scroll view until that page reaches its end.
             .tabViewStyle(.verticalPage)
-            .digitalCrownRotation($currentPage.doubleBinding(), from: 0, through: 2, by: 1)
             .onChange(of: scenePhase) { _, newScenePhase in
                 // Wrist raise or reopening the app: ask the phone for a fresh display state.
                 // (Handled here, not in TrioWatchApp, because this view owns the WatchState.)

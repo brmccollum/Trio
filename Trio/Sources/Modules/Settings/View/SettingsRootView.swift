@@ -280,7 +280,7 @@ extension Settings {
                     )
                     .listRowBackground(OffworldRowFill())
 
-                    if BaysylLink.url != nil || BaysylRecsLoader.isBundled {
+                    if BaysylLink.url != nil || BaysylRecsLoader.isBundled || BaysylBriefStore.shared.displayBrief != nil {
                         // Private-build extras, display only: the build-time link (BRYAN_BASAL_URL) and the
                         // optional bundled recommendations snapshot. Both absent in normal builds.
                         Section {

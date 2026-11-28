@@ -419,6 +419,11 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                     watchState.todayPercentLow = todayStats.percentLow
                     watchState.todayHighestGlucose = todayStats.highest
                     watchState.todayLowestGlucose = todayStats.lowest
+
+                    // The Baysyl brief for the watch's Baysyl page (display only). The cached last good
+                    // brief, or none while the "Baysyl brief" add-on is off: the watch then shows "No brief yet".
+                    watchState.sendsBaysylBrief = true
+                    watchState.baysylBrief = BaysylBriefStore.shared.displayBrief.map(BaysylWatchBrief.init)
                 }
 
                 // Add limits and pump specific dosing increment settings values
@@ -644,6 +649,11 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         if let value = state.todayPercentLow { dictionary[WatchMessageKeys.todayPercentLow] = value }
         if let value = state.todayHighestGlucose { dictionary[WatchMessageKeys.todayHighestGlucose] = value }
         if let value = state.todayLowestGlucose { dictionary[WatchMessageKeys.todayLowestGlucose] = value }
+
+        // Baysyl brief (display only), only with watch extras on. An empty dictionary clears the watch's page.
+        if state.sendsBaysylBrief {
+            dictionary[WatchMessageKeys.baysylBrief] = state.baysylBrief?.dictionary ?? [String: Any]()
+        }
 
         return dictionary
     }

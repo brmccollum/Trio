@@ -12,6 +12,8 @@ struct BaysylRecsView: View {
     /// Injected for previews and tests; the default reads the app bundle.
     var result: BaysylRecsLoader.LoadResult = BaysylRecsLoader.load()
     var liveURL: URL? = BaysylLink.url
+    /// The brief read from the chosen folder, if the "Baysyl brief" add-on is on and one has been read.
+    var brief: BaysylBrief? = BaysylBriefStore.shared.displayBrief
 
     static let emptyMessage = "No recommendations bundled in this build. Open Baysyl for the live list."
     static let unreadableMessage =
@@ -19,6 +21,10 @@ struct BaysylRecsView: View {
 
     var body: some View {
         List {
+            if let brief {
+                BaysylBriefSections(brief: brief)
+            }
+
             switch result {
             case let .loaded(recs) where !recs.recs.isEmpty:
                 header(recs)

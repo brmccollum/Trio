@@ -17,11 +17,16 @@ enum BaysylLaunchReport {
         safeMode: Bool,
         build: String,
         stages: [BaysylBreadcrumb],
+        addOns: BaysylAddOnState? = nil,
         limit: Int = noteLimit
     ) -> String {
         let lastStage = stages.last?.stage ?? "unknown"
+        // The add-on line is the state when the report is written (this launch), not during the failed one.
+        // It goes before the stages so a long stage list cannot cut it off.
+        let addOnPart = addOns.map { "add-ons now: \($0.reportLine); " } ?? ""
         let text = "\(prefix) previous launch did not finish (\(max(0, priorUnfinished)) in a row); "
             + "last stage: \(lastStage); safe mode: \(safeMode ? "on" : "off"); build \(build); "
+            + addOnPart
             + "stages: \(compactStages(stages))"
         return truncate(text, limit: limit)
     }
@@ -223,11 +228,19 @@ enum BaysylStartup {
                     priorUnfinished: info.priorUnfinished,
                     safeMode: info.safeMode,
                     build: BaysylLaunchReport.currentBuildLabel,
-                    stages: info.previousStages
+                    stages: info.previousStages,
+                    addOns: BaysylAddOnState.current
                 )
             )
         }
         flushOutbox()
+        // Build 13 add-ons, both off by default and off in safe mode. Each call returns at once and does
+        // nothing while its switch is off. Started here so neither can run during launch.
+        BaysylSpeechService.shared.startIfNeeded()
+        // A cold launch gets no "became active" Health tick (the scene is active before the services exist),
+        // so the first one is made here. Same rules as every tick: switch on, app active, unlocked, throttled.
+        HealthShareService.appDidBecomeActive()
+        BaysylBriefService.launchFinished()
     }
 
     /// Uploads waiting notes in its own low-priority task. Does nothing until this launch has finished and the

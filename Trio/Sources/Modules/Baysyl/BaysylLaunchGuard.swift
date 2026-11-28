@@ -502,10 +502,43 @@ enum BaysylAddOns {
     static let widgetFeedKey = "bryan.addons.widgetFeed"
     static let watchExtrasKey = "bryan.addons.watchExtras"
 
-    /// On unless the user turned the switch off (a missing value means on) and never while in safe mode.
-    static func isOn(key: String, defaults: UserDefaults, safeMode: Bool) -> Bool {
+    // Build 13 add-ons. All of these are OFF until the user turns them on.
+    static let briefKey = "bryan.addons.brief"
+    static let spokenAlertsKey = "bryan.addons.spokenAlerts"
+    /// Sub-switches of "Spoken alerts". They only matter while the main switch is on.
+    static let speakLowsKey = "bryan.addons.spokenAlerts.lows"
+    static let speakLoopStoppedKey = "bryan.addons.spokenAlerts.loopStopped"
+    /// Not an add-on of its own: how spoken alerts treat the ring/silent switch. On by default.
+    static let respectSilentModeKey = "bryan.addons.spokenAlerts.respectSilentMode"
+
+    /// The stored switch (a missing value means `defaultOn`), and never on while in safe mode.
+    static func isOn(key: String, defaults: UserDefaults, safeMode: Bool, defaultOn: Bool = true) -> Bool {
         guard !safeMode else { return false }
-        return (defaults.object(forKey: key) as? Bool) ?? true
+        return (defaults.object(forKey: key) as? Bool) ?? defaultOn
+    }
+
+    /// Baysyl brief: reads `brief.json` from the folder the user chose and shows it. Off by default.
+    static var brief: Bool {
+        isOn(key: briefKey, defaults: .standard, safeMode: BaysylLaunchGuard.shared.isSafeMode, defaultOn: false)
+    }
+
+    /// Spoken alerts, main switch. Off by default.
+    static var spokenAlerts: Bool {
+        isOn(key: spokenAlertsKey, defaults: .standard, safeMode: BaysylLaunchGuard.shared.isSafeMode, defaultOn: false)
+    }
+
+    /// "Speak lows": needs the main switch. The sub-switch itself starts on.
+    static var speakLows: Bool {
+        spokenAlerts && ((UserDefaults.standard.object(forKey: speakLowsKey) as? Bool) ?? true)
+    }
+
+    /// "Speak when the loop stops": needs the main switch. The sub-switch itself starts on.
+    static var speakLoopStopped: Bool {
+        spokenAlerts && ((UserDefaults.standard.object(forKey: speakLoopStoppedKey) as? Bool) ?? true)
+    }
+
+    static var respectSilentMode: Bool {
+        (UserDefaults.standard.object(forKey: respectSilentModeKey) as? Bool) ?? true
     }
 
     /// Home-screen and lock-screen widget snapshot publishing.

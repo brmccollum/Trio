@@ -392,6 +392,8 @@ extension Notification.Name {
             // Global upper bound on Dynamic Type: keep accessibility scaling but stop before the
             // extreme sizes that shatter dense layouts. Fragile screens cap tighter (see Home, Statistics).
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            // Debug simulator builds only (screenshots); compiles to nothing in a release build.
+            .baysylDebugScreen(appState)
             .onReceive(Foundation.NotificationCenter.default.publisher(for: .onboardingCompleted)) { _ in
                 Task { @MainActor in
                     self.showOnboardingCompletedSplash = true
@@ -436,6 +438,9 @@ extension Notification.Name {
                     // Reporting only; does nothing unless "Share sleep and workouts" is on, and never in
                     // safe mode. Runs in its own task.
                     HealthShareService.appDidBecomeActive()
+                    // Display only; does nothing unless "Baysyl brief" is on, a folder is chosen and the
+                    // launch has finished. Reads on its own queue.
+                    BaysylBriefService.appDidBecomeActive()
                 }
             }
         }
